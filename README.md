@@ -15,6 +15,16 @@ Keep the standard controller but splice into the 5V, GND and Blue control/data w
 
 The 5V and GND connect to the Arduino VCC and GND pins. The blue data wire connects to the D2 pin. (check input voltage to the controller is definitely 5V - incase it is a different model)
 
+Wiring:
+
+D2 -> Bus blue
+
+5V -> + 5V red
+
+GND -> GND black
+
+D8 -> GND optional inhibit switch
+
 Confirmed working with the Arduino Nano 5V 16Mhz, but should work with most 5v ATMega chips.
 
 I have only tested it with the model I have but I suspect it will work with a range of heaters. The world famous "Afterburner" diesel heater controller by Ray Jones suggest this compatability list https://gitlab.com/mrjones.id.au/bluetoothheater/-/wikis/home#compatibility But thats only a guess, so use at your own risk!
