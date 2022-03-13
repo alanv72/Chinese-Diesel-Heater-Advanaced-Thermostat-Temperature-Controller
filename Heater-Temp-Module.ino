@@ -56,7 +56,7 @@ void loop()
   }
   if (flasherDiff > flashLength * 2) {
     digitalWrite(LED_BUILTIN, LOW);
-    Serial.println("Heartbeat");
+    //Serial.println("Heartbeat");
     flasherLastTime = flasherTimeNow;
   }
 
@@ -102,26 +102,26 @@ void loop()
     //  Serial.print(": ");
     //  Serial.println(int(Data[i]));
     //}
-    Serial.println();
-    Serial.println("--- Heater Status ---");
-    Serial.print("Command          ");
-    Serial.println(int(heaterCommand));
-    Serial.print("Heater Status    ");
-    if (heaterStateNum >= 0 && heaterStateNum <= 8)
-    {
-      Serial.println(heaterState[heaterStateNum]);
-    }
-    Serial.print("Error Code       ");
-    Serial.println(heaterError);
-    Serial.print("Current Temp     ");
-    Serial.println(int(currentTemperature));
-    Serial.print("Set Temp         ");
-    Serial.println(int(setTemperature));
-    Serial.print("Heater State #   ");
-    Serial.println(heaterStateNum);
-    Serial.println();
-    Serial.print("System Enabled : ");
-    Serial.println(controlEnable);
+    //Serial.println();
+    //Serial.println("--- Heater Status ---");
+    //Serial.print("Command          ");
+    //Serial.println(int(heaterCommand));
+    //Serial.print("Heater Status    ");
+    //if (heaterStateNum >= 0 && heaterStateNum <= 8)
+    //{
+    //  Serial.println(heaterState[heaterStateNum]);
+    //}
+    //Serial.print("Error Code       ");
+    //Serial.println(heaterError);
+    //Serial.print("Current Temp     ");
+    //Serial.println(int(currentTemperature));
+    //Serial.print("Set Temp         ");
+    //Serial.println(int(setTemperature));
+    //Serial.print("Heater State #   ");
+    //Serial.println(heaterStateNum);
+    //Serial.println();
+    //Serial.print("System Enabled : ");
+    //Serial.println(controlEnable);
 
     if (int(heaterCommand) == 160) {
       //Serial.println("Start command seen from controller - Enabling Auto");
@@ -142,7 +142,7 @@ void loop()
       writerLastTime = writerTimeNow;
       // Start heater if set temp is 2 degree higher than current temp by more than 1 degree and heater state is "[0] stopped"
       if (int(setTemperature) >= (int(currentTemperature) + 2) && heaterError <= 1 && heaterStateNum == 0)  {
-        Serial.println("*** Temp Below Set Limit - Starting Heater ***");
+        //Serial.println("*** Temp Below Set Limit - Starting Heater ***");
         uint8_t data1[24] = {0x78, 0x16, 0xa0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x32, 0x08, 0x23, 0x05, 0x00, 0x01, 0x2C, 0x0D, 0xAC, 0x8D, 0x82};
         delay(50);
         sOne.write(data1, 24);
@@ -152,7 +152,7 @@ void loop()
 
       // shutdown if current temp is 3 degree warmer than set temp
       if (int(setTemperature) <= (int(currentTemperature) - 3) && heaterStateNum == 5) {
-        Serial.println("*** Temperature Above Upper Limit - Stopping Heater ***");
+        //Serial.println("*** Temperature Above Upper Limit - Stopping Heater ***");
         uint8_t data1[24] = {0x78, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x32, 0x08, 0x23, 0x05, 0x00, 0x01, 0x2C, 0x0D, 0xAC, 0x61, 0xD6};
         delay(50);
         sOne.write(data1, 24);
