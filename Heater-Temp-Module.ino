@@ -9,7 +9,10 @@ unsigned long writerLastTime;
 String heaterState[] = {"Off", "Starting", "Pre-Heat", "Failed Start - Retrying", "Ignition - Now heating up", "Running Normally", "Stop heaterCommand Received", "Stopping", "Cooldown"};
 int heaterStateNum = 0;
 int heaterError = 0;
-int controlEnable = 0;
+
+// Default enable thermostat mode at start up
+int controlEnable = 1;
+
 float currentTemperature = 0;
 float setTemperature = 0;
 float heaterCommand = 0;
@@ -123,12 +126,15 @@ void loop()
     //Serial.print("System Enabled : ");
     //Serial.println(controlEnable);
 
+    // On button pressed on unit or remote.
     if (int(heaterCommand) == 160) {
       //Serial.println("Start command seen from controller - Enabling Auto");
       controlEnable = 1;
     }
+    // Off button pressed on unit or remote.
     if (int(heaterCommand) == 5) {
       //Serial.println("Stop command seen from controller - Disabling Auto");
+      // disable termostat control until next on command seen.
       controlEnable = 0;
     }
 
@@ -150,8 +156,8 @@ void loop()
         flashLength = 100;
       }
 
-      // shutdown if current temp is 3 degree warmer than set temp
-      if (int(setTemperature) <= (int(currentTemperature) - 3) && heaterStateNum == 5) {
+      // shutdown if current temp is 2 degree warmer than set temp
+      if (int(setTemperature) <= (int(currentTemperature) - 2) && heaterStateNum == 5) {
         //Serial.println("*** Temperature Above Upper Limit - Stopping Heater ***");
         uint8_t data1[24] = {0x78, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x32, 0x08, 0x23, 0x05, 0x00, 0x01, 0x2C, 0x0D, 0xAC, 0x61, 0xD6};
         delay(50);
