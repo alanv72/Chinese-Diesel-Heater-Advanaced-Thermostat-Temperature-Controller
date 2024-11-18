@@ -1,4 +1,4 @@
-# Chinese Diesel Heater - Advanaced Temperature Controller
+# Chinese Diesel Heater - Advanced Thermostat Temperature Controller
 A simple Arduino inline extension to Chinese Diesel Heaters to help maintain a stable temperature by gracefully shutting down the heater if it gets too hot.
 
 Keeping the existing controller/display, it does this by turning off the heater if the observed tempertaure goes beyond that set on the thermostat control. It will also automatically restart the heater if the temperature dips too cold. A temperature range is set to avoid excess power cyling.
@@ -46,13 +46,12 @@ It will continue to turn on/off as required.
 
 If you turn the heater off using the controller or remote. It will disable the thermostat behaviour and will not resume until the 'on' button is pressed again, or the unit is completely powered off/on again.
 
-## Todo
 
-- Further testing in the real-world.
-- Detecting the voltage and shutting it down if it drops below a certain voltage.
 ## Change Log
 
 Changes since forked:
+- Fixed Negative Temperature Issue
+- Real-world tested for 2 years without any issues (other than the negative temperature issue - now fixed!)
 - Refactored
 - Added 30 seconds delay before sending on/off commands.
 - Added extra temperature buffer to avoid cycling the heater excessively
