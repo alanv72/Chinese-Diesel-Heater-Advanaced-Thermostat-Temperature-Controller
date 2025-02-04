@@ -1,14 +1,20 @@
-#include <SoftwareSerialWithHalfDuplex.h>
+// main.ino
 
-SoftwareSerialWithHalfDuplex sOne(2, 2); // NOTE TX & RX are set to same pin for half duplex operation
+#include "ESP32SoftwareSerial.h"
 
-int optionalEnableDisableSwitch = 8;
+#define HEATER_PIN 32  // Using GPIO 32 for half-duplex communication with heater
+#define LED_BUILTIN 2  // GPIO pin for the blue LED on ESP32 Dev Board
+
+ESP32SoftwareSerial sOne(HEATER_PIN); // Declare the instance of ESP32SoftwareSerial
+
 unsigned long flasherLastTime;
 unsigned long rxLastTime;
 unsigned long writerLastTime;
-String heaterState[] = {"Off", "Starting", "Pre-Heat", "Failed Start - Retrying", "Ignition - Now heating up", "Running Normally", "Stop heaterCommand Received", "Stopping", "Cooldown"};
+String heaterState[] = {"Off/Stand-by", "Starting", "Pre-Heat", "Failed Start - Retrying", "Ignition - Now heating up", "Running Normally", "Stop heaterCommand Received", "Stopping", "Cooldown"};
 int heaterStateNum = 0;
 int heaterError = 0;
+int heaterinternalTemp = 0;
+unsigned long lastSendTime = 0;  // New variable to track last send time
 
 // Default enable thermostat mode at start up
 int controlEnable = 1;
@@ -18,41 +24,34 @@ float currentTemperature = -200;
 
 float setTemperature = 0;
 float heaterCommand = 0;
+
 void setup()
 {
-  pinMode(optionalEnableDisableSwitch, INPUT_PULLUP);
-  // initialize listening serial port
-  // 25000 baud, Tx and Rx channels of Chinese heater comms interface:
-  // Tx/Rx data to/from heater, special baud rate for Chinese heater controllers
+  pinMode(HEATER_PIN, INPUT); // Set pin to input mode with pull-down for heater communication
   sOne.begin(25000);
-  // initialise serial monitor on serial port 0 - use 115200
-  // lower baud rates for debugging can slow down the diesel heater tx/rx
-  Serial.begin(115200);
-  // prepare for detecting a long delay
+
+  // Serial debug on UART0 (GPIO1 TX, GPIO3 RX)
+  Serial.begin(115200); // Initialize serial communication for debugging
+  Serial.println("Heater Controller Starting...");
+  
   flasherLastTime = millis();
   rxLastTime = millis();
   writerLastTime = millis();
-    // initialize digital pin LED_BUILTIN as an output.
   pinMode(LED_BUILTIN, OUTPUT);      
 }
 
 void loop()
-{ 
+{
   static byte Data[48];
   static bool RxActive = false;
   static int count = 0;
-  // Default heartbeat LED flash length milliseconds
   static long flashLength = 800;
 
+  unsigned long currentMillis = millis();
   unsigned long flasherTimeNow = millis();
   unsigned long flasherDiff = flasherTimeNow - flasherLastTime;
 
   // LED Heartbeat
-  // flash speed changes depending
-  // 1) standard heart beat when nothing is active
-  // 2) fast heart beat when heater has been triggered to turn on
-  // 3) slow heart beat when heater has been triggered to turn off
-  // These can be used for testing if you do not want to transmit changes to the heater.
   if (controlEnable == 0) {
     flashLength = 800;
   }
@@ -61,30 +60,30 @@ void loop()
   }
   if (flasherDiff > flashLength * 2) {
     digitalWrite(LED_BUILTIN, LOW);
-    //Serial.println("Heartbeat");
     flasherLastTime = flasherTimeNow;
   }
 
-  // read from serial on D2
+  // Read from serial (heater communication)
   if (sOne.available()) {
-    // calc elapsed time since last rx’d byte to detect start of frame sequence
     unsigned long rxTimeNow = millis();
     unsigned long rxDiff = rxTimeNow - rxLastTime;
     rxLastTime = rxTimeNow;
-
-    if (rxDiff > 100) { // this indicates the start of a new frame sequence
+    
+    int inByte = sOne.read(); // Declare inByte here
+    if (inByte == 0x76 && rxDiff > 150) { // Start of new frame with correct declaration
       RxActive = true;
+      //Serial.println("New frame detected");
     }
-    int inByte = sOne.read(); // read hex byte
     if (RxActive) {
       Data[count++] = inByte;
       if (count == 48) {
         RxActive = false;
+        //Serial.println("Frame complete, processing data...");
       }
     }
   }
 
-  if (count == 48) { // filled both frames – dump
+  if (count == 48) { // Process data when complete frame received
     unsigned long writerTimeNow = millis();
     unsigned long writerDiff = writerTimeNow - writerLastTime;
 
@@ -93,91 +92,94 @@ void loop()
     currentTemperature = int(Data[3]);
     setTemperature = int(Data[4]);
     heaterStateNum = int(Data[26]);
+    heaterinternalTemp = (int(Data[34]) << 8) | int(Data[35]);
+    int glowPlugCurrent = (int(Data[38]) << 8) | int(Data[39]);
+    float glowPlugCurrent_Amps = glowPlugCurrent / 100.0; // Convert from 10mA per digit to Amps
     heaterError = int(Data[41]);
 
-    // Adjust temperature integer for negative numbers (-1 = 255, -2 = 254)
-    // The basis of this code will use operating range -100'c to 155'c, which should be way outside the operating range of the heater
+    // Adjust temperature for negative values
     if (currentTemperature > 155 && currentTemperature <= 255) {
-      // currentTemperature will now give an accurate negative value
-      currentTemperature = currentTemperature - 256;
-      //  0 = 0
-      // -1 = 255, so 255-256=-1
-      // -2 = 254, so 254-256=-2
+      currentTemperature -= 256;
     }
 
-    // Data[29] looks like it contains voltage 121 = 12.1v
-    // Voltage dips significantly during glowplug use
-    // So low voltage detector would need to accomadate this
-    // Or thicker wires to the heater maybe required. 
-
-    // For debugging
-//    for (int i = 0; i <= 47; i++) {
-//      Serial.print("Item ");
-//      Serial.print(i);
-//      Serial.print(": ");
-//      Serial.println(int(Data[i]));
-//    }
-//    Serial.println();
-//    Serial.println("--- Heater Status ---");
-//    Serial.print("Command          ");
-//    Serial.println(int(heaterCommand));
-//    Serial.print("Heater Status    ");
-//    if (heaterStateNum >= 0 && heaterStateNum <= 8)
-//    {
-//      Serial.println(heaterState[heaterStateNum]);
-//    }
-//    Serial.print("Error Code       ");
-//    Serial.println(heaterError);
-//    Serial.print("Current Temp     ");
-//    Serial.println(currentTemperature);
-//    Serial.print("Set Temp         ");
-//    Serial.println(setTemperature);
-//    Serial.print("Heater State #   ");
-//    Serial.println(heaterStateNum);
-//    Serial.println();
-//    Serial.print("System Enabled : ");
-//    Serial.println(controlEnable);
-
-    // On button pressed on unit or remote.
+    // Format output for better readability
+    if (currentMillis - lastSendTime >= 5000) {
+      lastSendTime = currentMillis;
+      Serial.println("Heater Status:");
+      Serial.printf("  Command: %d\n", heaterCommand);
+      Serial.printf("  Current Temp: %.2f°C\n", currentTemperature);
+      Serial.printf("  Set Temp: %.2f°C\n", setTemperature);
+      Serial.printf("  Heater Internal Temp: %d°C\n", heaterinternalTemp);
+      Serial.printf("  Glow Plug Current: %.2f A\n", glowPlugCurrent_Amps);
+      //Serial.printf("  State: %d - ", heaterStateNum);
+      if (heaterStateNum >= 0 && heaterStateNum <= 8) {
+        Serial.printf("  State: %s\n", heaterState[heaterStateNum]);
+      } else {
+        Serial.println("Unknown");
+      }
+      Serial.printf("  Error: %d\n", heaterError);
+    }
+    // Handle heater commands
     if (int(heaterCommand) == 160) {
-      //Serial.println("Start command seen from controller - Enabling Auto");
       controlEnable = 1;
+      Serial.println("  Heater ON command detected");
     }
-    // Off button pressed on unit or remote.
     if (int(heaterCommand) == 5) {
-      //Serial.println("Stop command seen from controller - Disabling Auto");
-      // disable termostat control until next on command seen.
       controlEnable = 0;
+      Serial.println("  Heater OFF command detected");
     }
 
-    // Make sure variables are being populated by the heater
-    // Sometimes the current temp takes a while to establish
-    // Use writerDiff to wait 30 seconds between issuing commands
-    // Optional Switch is in correct position
-    if (controlEnable == 1 && currentTemperature > -100 && setTemperature > 0 && writerDiff > 30000 && digitalRead(optionalEnableDisableSwitch) == HIGH)
+    // Control heater based on temperature and conditions
+    if (controlEnable == 1 && currentTemperature > -100 && setTemperature > 0 && writerDiff > 30000)
     {
-      // Inside this block only gets run every 30 seconds
       writerLastTime = writerTimeNow;
-      // Start heater if set temp is 2 degree higher than current temp by more than 1 degree and heater state is "[0] stopped"
-      if (setTemperature >= (currentTemperature + 2) && heaterError <= 1 && heaterStateNum == 0)  {
-        //Serial.println("*** Temp Below Set Limit - Starting Heater ***");
-        uint8_t data1[24] = {0x78, 0x16, 0xa0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x32, 0x08, 0x23, 0x05, 0x00, 0x01, 0x2C, 0x0D, 0xAC, 0x8D, 0x82};
-        delay(50);
-        sOne.write(data1, 24);
-        // Now use 0.1 Second LED Heart Beat
+      if (setTemperature >= (currentTemperature + 2) && heaterError <= 1 && heaterStateNum == 0) {
+      //  uint8_t data1[24] = {0x78, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x32, 0x08, 0x23, 0x05, 0x00, 0x01, 0x2C, 0x0D, 0xAC, 0x8D, 0x82};
+        uint8_t data1[24] = {0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x06, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00};
+        sendData(data1, 24);
         flashLength = 100;
+        Serial.println("  Starting Heater");
       }
-
-      // shutdown if current temp is 2 degree warmer than set temp
-      if (setTemperature <= (currentTemperature - 2) && heaterStateNum == 5) {
-        //Serial.println("*** Temperature Above Upper Limit - Stopping Heater ***");
-        uint8_t data1[24] = {0x78, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x32, 0x08, 0x23, 0x05, 0x00, 0x01, 0x2C, 0x0D, 0xAC, 0x61, 0xD6};
-        delay(50);
-        sOne.write(data1, 24);
-        // Now use 3 Second LED Heart Beat
+      
+      if (setTemperature <= (currentTemperature - 2) && (heaterStateNum == 5 || heaterStateNum == 2)) {
+        //uint8_t data1[24] = {0x78, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x32, 0x08, 0x23, 0x05, 0x00, 0x01, 0x2C, 0x0D, 0xAC, 0x61, 0xD6};
+        uint8_t data1[24] = {0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x06, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00};
+        sendData(data1, 24);
         flashLength = 3000;
+        Serial.println("  Stopping Heater");
       }
     }
-
   }
-} // loop
+}
+
+uint16_t calculateCRC16(const uint8_t* data, size_t length) {
+  uint16_t crc = 0xFFFF;
+  for (size_t i = 0; i < length; ++i) {
+    crc ^= (uint16_t)data[i];
+    for (int j = 0; j < 8; ++j) {
+      if (crc & 0x0001) {
+        crc >>= 1;
+        crc ^= 0xA001;
+      } else {
+        crc >>= 1;
+      }
+    }
+  }
+  return crc;
+}
+
+void sendData(const uint8_t *data, size_t length) {
+  uint8_t dataToSend[length];
+  memcpy(dataToSend, data, length - 2); // Copy all but the CRC bytes
+  uint16_t crc = calculateCRC16(dataToSend, length - 2);
+  dataToSend[length - 2] = (crc >> 8) & 0xFF; // MSB
+  dataToSend[length - 1] = crc & 0xFF;        // LSB
+
+  for (int i = 0; i < 3; ++i) {
+    for (size_t i = 0; i < length; i++) {
+      sOne.write(dataToSend[i]); // Write each byte
+    }
+    Serial.printf("  Sent %d bytes to heater (Attempt %d)\n", length, i+1);
+    delay(400);
+  }
+}
