@@ -1,3 +1,13 @@
+This is a fork/port for ESP32 devkit 1. Currently MVP is working. Will be adding things like OTA, web interface, and bluetooth for monitoring. Will be adding status collection and fuel gauge from 0-90ohm 20gal diesel tank.
+
+You will need a 3.3v to 5v level shifter!
+i.e. https://www.amazon.com/dp/B08C9PFVGP
+![image](https://github.com/user-attachments/assets/54cb48d1-d689-4f43-a3b4-d8f57d3fb5c1)
+
+Including sniffer from the great https://gitlab.com/mrjones.id.au/bluetoothheater
+
+Original intent from Jess
+--------------------------
 # Chinese Diesel Heater - Advanced Thermostat Temperature Controller
 A simple Arduino inline extension to Chinese Diesel Heaters to help maintain a stable temperature by gracefully shutting down the heater if it gets too hot, or turning it on if it gets too cold.
 
