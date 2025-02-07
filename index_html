@@ -349,7 +349,7 @@ document.addEventListener('DOMContentLoaded', function() {
           var currentTime = new Date().getTime(); // Current time in milliseconds
 
           // Check if a minute has passed since the last heater_update for setTemp updates
-          if (currentTime - lastUpdateTime >= 60000) { // 60000 ms = 1 minute
+          if (currentTime - lastUpdateTime >= 20000) { // 60000 ms = 1 minute
             lastUpdateTime = currentTime; // Update the last update time
 
             // Update slider and display for setTemp
@@ -376,7 +376,7 @@ document.addEventListener('DOMContentLoaded', function() {
           document.getElementById("frostMode").checked = data.frostMode;
 
           // Update new fields
-          document.getElementById("heaterInternalTemp").textContent = data.heaterinternalTemp.toFixed(1) + "°F";
+          document.getElementById("heaterInternalTemp").textContent = (data.heaterinternalTemp * 9/5 + 32).toFixed(1) + "°F";
           document.getElementById("glowPlugCurrent").textContent = data.glowPlugCurrent_Amps.toFixed(2);
           document.getElementById("pumpHz").textContent = data.pumpHz.toFixed(2);
 
@@ -404,7 +404,7 @@ document.addEventListener('DOMContentLoaded', function() {
               }
             };
             xhr.send();
-          }, 60000);
+          }, 20000);
 
         } catch(error) {
           console.error("Failed to parse JSON:", error);
