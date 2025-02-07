@@ -1,3 +1,7 @@
+New updates and added functonality to mimic afterburner. Will document when I have time.
+![image](https://github.com/user-attachments/assets/2f727591-7cb6-40a4-b427-13b11fb2900d)
+
+
 This is a fork/port for ESP32 devkit 1. Currently MVP is working. Will be adding things like OTA, web interface, and bluetooth for monitoring. Will be adding status collection and fuel gauge from 0-90ohm 20gal diesel tank.
 
 You will need a 3.3v to 5v level shifter!
