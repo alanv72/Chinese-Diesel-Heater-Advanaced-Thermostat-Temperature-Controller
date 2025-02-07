@@ -14,6 +14,8 @@ public:
     void write(uint8_t byte);
     int read();
     bool available();
+    // void stopListening();
+    // void startListening();
 };
 
 #endif
