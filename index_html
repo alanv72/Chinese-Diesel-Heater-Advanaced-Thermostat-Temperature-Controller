@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <style>
     body {
-      margin-top: 40px;
+      margin-top: 100px;
       background: #2c3e50 url('/fireside.jpg') no-repeat center center fixed; 
       background-size: cover;
       color: #f39c12; 
@@ -20,7 +20,7 @@
       -webkit-appearance: none;
       width: 80%;
       height: 25px;
-      background: linear-gradient(to right, yellow, orange, red, red); /* Static gradient from yellow to orange to red */
+      background: linear-gradient(to right, yellow, red); /* Static gradient from yellow to orange to red */
       outline: none;
       opacity: 0.7;
       -webkit-transition: .2s;
@@ -34,7 +34,7 @@
       appearance: none;
       width: 25px;
       height: 25px;
-      background: #e74c3c;
+      background: #333;
       cursor: pointer;
     }
 
@@ -57,7 +57,7 @@
       white-space: nowrap;
       z-index: 1000;
     }
-    button {
+    button, input[type="checkbox"] + label {
       background-color: #d35400;
       border: none;
       color: white;
@@ -71,7 +71,7 @@
       border-radius: 12px;
       transition: background-color 0.3s;
     }
-    button:hover {
+    button:hover, input[type="checkbox"] + label:hover {
       background-color: #e67e22;
     }
     #status {
@@ -112,52 +112,159 @@
     }
     #shutdownHeater {
       position: fixed;
-      top: 30px;
+      top: 70px;
       right: 10px;
       z-index: 1001;
       background-color: #d35400;
       border: none;
       color: white;
-      padding: 5px 10px; /* Halved padding */
+      padding: 5px 10px;
       text-align: center;
       text-decoration: none;
       display: inline-block;
-      font-size: 12px; /* Smaller font size */
+      font-size: 12px;
       cursor: pointer;
-      border-radius: 4px; /* Halved border-radius */
+      border-radius: 4px;
       transition: background-color 0.3s;
-      /* Touch-friendly adjustments */
-      min-width: 50px; /* Half of previous min-width */
-      min-height: 20px; /* Half of previous min-height */
+      min-width: 50px;
+      min-height: 20px;
     }
 
     #shutdownHeater:hover {
       background-color: #e67e22;
+    }
+    /* Style for the thermostat control toggle */
+    #thermostatControl {
+      width: 80px;
+      position: fixed;
+      top: 110px; /* Adjust based on the height of the fuel gauge */
+      z-index: 1; /* Ensure it's above the gauge */
+    }
+    #thermostatControl input[type="checkbox"] {
+      display: none;
+    }
+    #thermostatControl label {
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    #thermostatControl input[type="checkbox"]:checked + label {
+      background-color: #e67e22; /* Active state color */
+    }
+    #thermostatControl label.active {
+      background-color: #e67e22;
+      width 100%;
+    }
+    #frostMode input[type="checkbox"] {
+      display: none;
+    }
+        /* Fuel Gauge Styling */
+    .gauge {
+      width: 100%;
+      max-width: 80px;
+      font-family: "Roboto", sans-serif;
+      font-size: 12px;
+      color: #333;
+      position: fixed;
+      z-index: -10;
+      top: 70px;
+      left: 10px;
+      margin: 0 20px 20px 0; /* Margin to separate from content */
+    }
+
+    .gauge__body {
+      width: 100%;
+      height: 0;
+      padding-bottom: 50%;
+      background: transparent;
+      position: relative;
+      border-top-left-radius: 100% 200%;
+      border-top-right-radius: 100% 200%;
+      overflow: hidden;
+    }
+    .gauge__fill {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      width: inherit;
+      height: 100%;
+      background: #009578;
+      transform-origin: center top;
+      transform: rotate(0.25turn);
+      transition: transform 0.2s ease-out;
+    }
+
+    .gauge__cover {
+      width: 75%;
+      height: 150%;
+      background: #ccc;
+      border-radius: 50%;
+      position: absolute;
+      top: 25%;
+      left: 50%;
+      transform: translateX(-50%);
+
+      /* Text */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding-bottom: 25%;
+      box-sizing: border-box;
+    }
+    #walltempbut {
+      background-color: #d35400;
+      border: none;
+      color: white;
+      padding: 5px 10px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background-color 0.3s;
+      min-width: 50px;
+      min-height: 20px;
     }
   </style>
 </head>
 <body>
 <button id="shutdownHeater" onclick="shutdownHeater()">Shut Down Heater</button>
 <div id="statusBanner" style="position: fixed; top: 0; left: 0; width: 100%; background: rgba(0, 0, 0, 0.7); color: #f39c12; font-size: 12px; padding: 5px 0; text-align: center; z-index: 1000;">
-  <span id="uptime" style="margin: 0 10px;">Uptime: <span></span></span>
-  <span id="currentTime" style="margin: 0 10px;">Time: <span></span></span>
-  <span id="currentDate" style="margin: 0 10px;">Date: <span></span></span>
-  <span style="margin: 0 10px;">Temp: <span id="currentTemp">0</span></span>
-  <span style="margin: 0 10px;">State: <span id="heaterState">Unknown</span></span>
-  <span style="margin: 0 10px;">Hour Meter: <span id="runtime">0</span></span>
-  <span style="margin: 0 10px;">Fan: <span id="fanSpeed">0</span></span>
-  <span style="margin: 0 10px;">Volt: <span id="supplyVoltage">0.0</span></span>
-  <span id="voltageWarning" style="margin: 0 10px;"></span>
-  <span style="margin: 0 10px;">Internal Temp: <span id="heaterInternalTemp">0</span></span>
-  <span style="margin: 0 10px;">Glow Plug Current: <span id="glowPlugCurrent">0</span> A</span>
-  <span style="margin: 0 10px;">Pump Hz: <span id="pumpHz">0</span> Hz</span>
-  <span style="margin: 0 10px;">Glow Plug: <span id="glowPlugHours">0.00</span></span>
+  <span id="uptime" style="margin: 0 5px;">Up: <span></span></span>
+  <span id="currentTime" style="margin: 0 5px;"><span></span></span>
+  <span id="currentDate" style="margin: 0 5px;"><span></span></span>
+  <span style="margin: 0 5px;">Temp: <span id="currentTemp">0</span></span>
+  <span style="margin: 0 5px;">State: <span id="heaterState">Unknown</span></span>
+  <span style="margin: 0 5px;">Meter: <span id="runtime">0</span></span>
+  <span style="margin: 0 5px;">Fan: <span id="fanSpeed">0</span></span>
+  <span style="margin: 0 5px;">Volt: <span id="supplyVoltage">0.0</span></span>
+  <span style="margin: 0 5px;">Int Temp: <span id="heaterInternalTemp">0</span></span>
+  <span style="margin: 0 5px;">Glow: <span id="glowPlugCurrent">0</span> A</span>
+  <span style="margin: 0 5px;">Pump: <span id="pumpHz">0</span> Hz</span>
+  <span style="margin: 0 5px;">Glow Hrs: <span id="glowPlugHours">0.00</span></span>
+  <span style="margin: 0 5px;">Wall Temp: <span id="walltemp">0</span></span>
+  <span style="margin: 0 5px;">Duct: <span id="ductfan"></span></span>
+  <span style="margin: 0 5px;">Wall: <span id="wallfan"></span></span>
+  <span style="margin: 0 5px;">Avg: <span id="rollingAvgGPH">0.00</span></span>
+  <span style="margin: 0 5px;">Est Run: <span id="rollingRuntimeHours">0</span></span>
+  <span id="voltageWarning" style="margin: 0 5px;"></span>
 </div>
+  <!-- Fuel Gauge -->
+  <div style="text-align: center;" class="gauge">
+    <div class="gauge__body">
+      <div class="gauge__fill" id="fuelGaugeFill"></div>
+      <div class="gauge__cover" id="fuelGallonsLeft">0 Gal</div>
+    </div>
+  </div>
+    <div id="thermostatControl">
+    <input type="checkbox" id="thermostatEnable" onchange="toggleThermostat(this.checked)">
+    <label for="thermostatEnable" id="thermostatLabel">Thermostat Off</label>
+  </div>
   <h1>Heater Control</h1>
   <div id="message"></div>
-  <div id="currentSetTemp">Set Temperature: <span id="setTemperatureDisplay">60</span>°F
+  <div id="currentSetTemp">Set Temperature: <span id="setTemperatureDisplay">60</span>°F<br>
     <input type="range" min="46" max="95" value="60" class="slider" id="tempSlider">
-  <!--  <div id="sliderValue" class="floating-label"></div> -->
   </div>
   
   <div style="text-align: center;">
@@ -170,17 +277,24 @@
     <button id="primeStart" onclick="primePump('start')">Start Pump Prime</button>
     <button id="primeStop" onclick="primePump('stop')">Stop Pump Prime</button>
   </div>
-  <div style="text-align: center;">
-  <input type="checkbox" id="frostMode" onchange="toggleFrostMode(this.checked)">
-  <label for="frostMode">Frost Mode</label>
+  <div id="frostMode" style="text-align: center;">
+    <input type="checkbox" id="frostMode" onchange="toggleFrostMode(this.checked)">
+    <label for="frostMode">Frost Mode</label>
+  </div>
+  <div style="text-align: center;" class="walltemp">
+    <h2>Wall Fan Control</h2>
+    <p>Set Temp: <span id="currentWallTempTrigger">0</span>°F  
+    <input type="number" id="wallTempTriggerInput" min="40" max="120" step="1" value="">
+    <button id="walltempbut" onclick="setWallTempTrigger()">Update</button></p>
   </div>
   <div style="text-align: center;" class="tank">
 
     <h2>Fuel Consumption</h2>
-    <p>Lifetime Fuel Used: <span id="lifetimeFuel">0</span></p>
+    <p>Tank Used: <span id="tankFuel">0</span></p>
     <p>Current Usage: <span id="currentUsage">0</span></p>
-    <p>Average Gallons per Hour: <span id="avgGPH">0.00</span></p>
-    <p>Fuel Used This Tank: <span id="tankFuel">0</span></p>
+    <p>Tank Avg: <span id="avgGPH">0.00</span></p>
+    <p>Tank Runtime: <span id="tankruntime">0.00</span></p>
+    <p>Lifetime: <span id="lifetimeFuel">0</span></p>
     <button onclick="resetAverage()">Reset Average</button><button onclick="resetTank()">Reset Tank</button>
     
     <h2>Tank Management</h2>
@@ -188,6 +302,7 @@
     <input type="number" id="tankSizeInput" min="0" step="0.1"><button onclick="setTankSize()">Set Tank Size</button>
     
   </div>
+  <canvas id="tempChart" width="400" height="200"></canvas>
   <div class="file-area">
     <h2>File Upload</h2>
     <form method="POST" action="/upload" enctype="multipart/form-data">
@@ -213,6 +328,16 @@
 <script>
 const ML_TO_GALLON = 0.000264172; // Conversion factor from ml to gallons
 
+function formatUptime(seconds) {
+  let days = Math.floor(seconds / (24 * 3600));
+  seconds %= (24 * 3600);
+  let hours = Math.floor(seconds / 3600);
+  seconds %= 3600;
+  let minutes = Math.floor(seconds / 60);
+
+  return `${days}:${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+}
+
 // Functions that need to be globally accessible for inline event handlers
 function setTemp(value) {
   var xhr = new XMLHttpRequest();
@@ -236,11 +361,56 @@ function updateTempDisplay(value) {
   document.getElementById("currentSetTemp").querySelector("span").textContent = value;
 }
 
+function setWallTempTrigger() {
+    var triggerInput = document.getElementById("wallTempTriggerInput");
+    if (triggerInput) {
+        var triggerValue = triggerInput.value;
+        if (!isNaN(triggerValue) && triggerValue >= 40 && triggerValue <= 120) {
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", "/setWallTempTrigger");
+            xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+            xhr.send("trigger=" + triggerValue);
+            document.getElementById("currentWallTempTrigger").textContent = triggerValue;
+        }
+    }
+}
+
 function toggleFrostMode(enabled) {
   var xhr = new XMLHttpRequest();
   xhr.open("POST", "/frostMode");
   xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
   xhr.send("enable=" + enabled);
+}
+
+function toggleThermostat(enabled) {
+  var label = document.getElementById("thermostatLabel");
+  var newState = enabled;
+  console.log("Toggling thermostat. New state: " + newState);
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "/toggleThermostat");
+  xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+  xhr.send("enable=" + newState);
+
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      console.log("Thermostat toggle request successful");
+      // Update label text based on new state
+      label.textContent = newState ? "Thermostat On" : "Thermostat Off";
+      label.classList.toggle("active", newState);
+      document.getElementById("thermostatEnable").checked = newState; // Sync checkbox state
+    } else {
+      console.error("Failed to toggle thermostat. Status: " + xhr.status);
+      // Revert the checkbox if the toggle failed
+      document.getElementById("thermostatEnable").checked = !newState;
+    }
+  };
+
+  xhr.onerror = function() {
+    console.error("Network error while toggling thermostat");
+    // Revert the checkbox on error
+    document.getElementById("thermostatEnable").checked = !newState;
+  };
 }
 
 function primePump(action) {
@@ -298,6 +468,83 @@ document.addEventListener('DOMContentLoaded', function() {
   var tempSlider = document.getElementById("tempSlider");
   var lastUpdateTime = 0; // Timestamp for the last heater_update update
   var intervalId; // For managing the interval
+
+  // Custom locale for date-fns
+  const customLocale = {
+    localize: {
+      month: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+      day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    },
+    formatLong: {
+      date: () => 'MM/dd/yyyy',
+      time: () => 'HH:mm:ss',
+      dateTime: () => 'MM/dd/yyyy HH:mm:ss'
+    }
+  };
+
+  // Chart initialization
+  var ctx = document.getElementById('tempChart').getContext('2d');
+  var tempChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [], // will hold the timestamps
+      datasets: [{
+        label: 'Temperature (°F)',
+        data: [], // will hold the temperatures
+        fill: false,
+        borderColor: 'orange',
+        tension: 0.1
+      }]
+    },
+    options: {
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            unit: 'minute',
+            displayFormats: {
+              minute: 'HH:mm'
+            },
+            tooltipFormat: 'HH:mm'
+          },
+          adapters: {
+            date: {
+              locale: customLocale // Your custom locale configuration
+            }
+          },
+          title: {
+            display: false,
+            text: 'Time'
+          }
+        },
+        y: {
+          title: {
+            display: false,
+            text: 'Temperature (°F)',
+            color: 'white'
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          labels: {
+            color: 'grey' // Legend text color to white
+          }
+        }
+      }
+    },
+    plugins: [{
+      beforeDraw: (chart) => {
+        const ctx = chart.canvas.getContext('2d');
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        ctx.fillStyle = 'lightyellow'; // Light yellow background
+        ctx.fillRect(0, 0, chart.width, chart.height);
+        ctx.restore();
+      }
+    }]
+  });
+
 
   if (tempSlider) {
     tempSlider.oninput = function() {
@@ -363,10 +610,15 @@ document.addEventListener('DOMContentLoaded', function() {
           
           document.getElementById("currentTime").querySelector("span").textContent = data.time;
           document.getElementById("currentDate").querySelector("span").textContent = data.date;
+          document.getElementById("currentWallTempTrigger").textContent = data.walltemptrigger.toFixed(1);
 
-          document.getElementById("lifetimeFuel").textContent = (data.fuelConsumedLifetime * ML_TO_GALLON).toFixed(2) + " Gal";
-          document.getElementById("tankFuel").textContent = (data.fuelConsumedTank * ML_TO_GALLON).toFixed(2) + " Gal";
-          document.getElementById("currentUsage").textContent = (data.currentUsage * ML_TO_GALLON).toFixed(2) + " GPH";
+          // Format and update uptime
+          var uptimeSpan = document.getElementById("uptime").querySelector("span");
+          uptimeSpan.textContent = formatUptime(parseInt(data.uptime)); // Convert string to int and format
+
+          document.getElementById("lifetimeFuel").textContent = data.fuelConsumedLifetime.toFixed(2) + " Gal";
+          document.getElementById("tankFuel").textContent = data.fuelConsumedTank.toFixed(3) + " Gal";
+          document.getElementById("currentUsage").textContent = data.currentUsage.toFixed(3) + " GPH";
           document.getElementById("currentTankSize").textContent = data.tankSizeGallons.toFixed(0) + "Gal";
           document.getElementById("avgGPH").textContent = data.averageGPH.toFixed(2) + "GPH";
           document.getElementById("fanSpeed").textContent = data.fanSpeed + "RPM";
@@ -375,12 +627,62 @@ document.addEventListener('DOMContentLoaded', function() {
           document.getElementById("glowPlugHours").textContent = data.glowPlugHours.toFixed(2) + "Hrs";
           document.getElementById("frostMode").checked = data.frostMode;
 
+          document.getElementById("rollingAvgGPH").textContent = data.rollingAvgGPH.toFixed(2) + " GPH";
+          var runtimeHours = data.rollingRuntimeHours === null ? '∞' : data.rollingRuntimeHours.toFixed(2);
+          document.getElementById("rollingRuntimeHours").textContent = runtimeHours + " Hrs";
+          document.getElementById("tankruntime").textContent = data.remainingRuntimeHours.toFixed(2) + "Hrs";
+
+          // Update duct fan status
+          var ductFanStatus = document.getElementById('ductfan');
+          if (ductFanStatus) {
+            ductFanStatus.textContent = data.ductfan ? "On" : "Off";
+          }
+
+          // Update wall fan status
+          var wallFanStatus = document.getElementById('wallfan');
+          if (wallFanStatus) {
+            wallFanStatus.textContent = data.wallfan ? "On" : "Off";
+          }
+
+          // Update thermostat label
+          var thermostatLabel = document.getElementById("thermostatLabel");
+          thermostatLabel.textContent = data.controlEnable ? "Thermostat On" : "Thermostat Off";
+          thermostatLabel.classList.toggle("active", data.controlEnable);
+          document.getElementById("thermostatEnable").checked = data.controlEnable;
+
           // Update new fields
           document.getElementById("heaterInternalTemp").textContent = (data.heaterinternalTemp * 9/5 + 32).toFixed(1) + "°F";
           document.getElementById("glowPlugCurrent").textContent = data.glowPlugCurrent_Amps.toFixed(2);
-          document.getElementById("pumpHz").textContent = data.pumpHz.toFixed(2);
+          document.getElementById("pumpHz").textContent = data.pumpHz.toFixed(1);
+          document.getElementById("walltemp").textContent = data.walltemp.toFixed(1);
 
-          var fuelUsed = data.fuelConsumedTank * ML_TO_GALLON; // Convert to gallons if necessary
+          // Update fuel gauge
+          var tankSizeGallons = data.tankSizeGallons;
+          var fuelConsumedTank = data.fuelConsumedTank;
+          var gallonsLeft = tankSizeGallons > 0 ? tankSizeGallons - fuelConsumedTank : 0;
+          gallonsLeft = Math.max(0, gallonsLeft); // Ensure it doesn't go below 0
+          // Calculate percentage for gauge fill
+          var fuelPercentage = tankSizeGallons > 0 ? (gallonsLeft / tankSizeGallons) * 100 : 0;
+          fuelPercentage = Math.max(0, Math.min(100, fuelPercentage)); // Clamp between 0 and 100
+
+          // Update gauge display
+          document.getElementById("fuelGallonsLeft").textContent = gallonsLeft.toFixed(2) + " Gal";
+          var rotation = (fuelPercentage / 100) * 180; // Convert percentage to degrees (0-180°)
+          document.getElementById("fuelGaugeFill").style.transform = `rotate(${rotation}deg)`;
+
+          // Change color based on fuel level
+          var fuelGaugeFill = document.getElementById("fuelGaugeFill");
+          if (fuelPercentage < 10) {
+            fuelGaugeFill.style.backgroundColor = "#FF0000"; // Red for low fuel
+          } else if (fuelPercentage < 25) {
+            fuelGaugeFill.style.backgroundColor = "#FFA500"; // Orange for medium fuel
+          } else if (fuelPercentage < 50) {
+            fuelGaugeFill.style.backgroundColor = "#FFFF"; // yellow for 3/4tank
+          } else {
+            fuelGaugeFill.style.backgroundColor = "#327A24"; // Green for high fuel
+          }
+
+          var fuelUsed = data.fuelConsumedTank;
           var tankSize = data.tankSizeGallons;
           
           var messageDiv = document.getElementById("message");
@@ -389,6 +691,15 @@ document.addEventListener('DOMContentLoaded', function() {
             messageDiv.textContent = "Warning: Fuel level is low!";
           } else {
             messageDiv.textContent = "";
+          }
+
+          // Update temperature history chart
+          if (data.tempHistory) {
+            var tempHistory = JSON.parse(data.tempHistory);  // Parse the JSON string back to object
+            // Convert timestamps to Date objects for Chart.js time scale
+            tempChart.data.labels = tempHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
+            tempChart.data.datasets[0].data = tempHistory.tempHistory;
+            tempChart.update();
           }
 
           // Start or reset the interval for periodic updates of setTemp
@@ -455,5 +766,8 @@ document.addEventListener('DOMContentLoaded', function() {
   };
 });
 </script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/date-fns/locale/en-US/index.js"></script>
 </body>
 </html>
