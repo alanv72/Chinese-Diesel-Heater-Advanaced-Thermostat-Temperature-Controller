@@ -283,8 +283,8 @@
   </div>
   <div style="text-align: center;" class="walltemp">
     <h2>Wall Fan Control</h2>
-    <p>Set Temp: <span id="currentWallTempTrigger">0</span>°F  
-    <input type="number" id="wallTempTriggerInput" min="40" max="120" step="1" value="">
+    <p>Deta: <span id="currentWallTempTrigger">0</span>°F  
+    <input type="number" id="wallTempTriggerInput" min="-1" max="10" step="1" value="">
     <button id="walltempbut" onclick="setWallTempTrigger()">Update</button></p>
   </div>
   <div style="text-align: center;" class="tank">
@@ -365,7 +365,7 @@ function setWallTempTrigger() {
     var triggerInput = document.getElementById("wallTempTriggerInput");
     if (triggerInput) {
         var triggerValue = triggerInput.value;
-        if (!isNaN(triggerValue) && triggerValue >= 40 && triggerValue <= 120) {
+        if (!isNaN(triggerValue) && triggerValue >= -1 && triggerValue <= 10) {
             var xhr = new XMLHttpRequest();
             xhr.open("POST", "/setWallTempTrigger");
             xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -567,20 +567,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Set slider on initial page load
-  if (tempSlider) {
-    var xhr = new XMLHttpRequest();
-    xhr.open("GET", "/getcurrenttemp", true); // Assuming there's an endpoint to get current temp
-    xhr.onload = function() {
-      if (xhr.status === 200) {
-        var currentTemp = JSON.parse(xhr.responseText).setTemp || 60; // Default to 60 if no data
-        tempSlider.value = currentTemp;
-        updateTempDisplay(currentTemp);
-      }
-    };
-    xhr.send();
-  }
-
   var evtSource = new EventSource("/events");
   
   evtSource.onmessage = function(e) {
@@ -610,7 +596,7 @@ document.addEventListener('DOMContentLoaded', function() {
           
           document.getElementById("currentTime").querySelector("span").textContent = data.time;
           document.getElementById("currentDate").querySelector("span").textContent = data.date;
-          document.getElementById("currentWallTempTrigger").textContent = data.walltemptrigger.toFixed(1);
+          document.getElementById("currentWallTempTrigger").textContent = data.walltemptrigger.toFixed(0);
 
           // Format and update uptime
           var uptimeSpan = document.getElementById("uptime").querySelector("span");
