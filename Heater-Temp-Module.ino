@@ -91,6 +91,8 @@ unsigned long ductfandelay = 0;
 unsigned long wallfandelay = 0;
 bool ductfan = 0;
 bool wallfan = 0;
+bool cshut = 0;
+String message = "";
 #define TEMP_HISTORY_SIZE 720 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
 #define INTERVAL_BETWEEN_SAVES 300000
 float tempHistory[TEMP_HISTORY_SIZE];
@@ -105,7 +107,7 @@ int tempIndex = 0;
 unsigned long flasherLastTime;
 unsigned long rxLastTime;
 unsigned long writerLastTime;
-String heaterState[] = { "Off/Stand-by", "Starting", "Pre-Heat", "Retry Start", "Ramping Up", "Heating", "Stop Received", "Shutting Down", "Cooldown" };
+String heaterState[] = { "Off/Stand-by", "Starting", "Pre-Heat", "Retry Start", "Ramping Up", "Heating", "Stop Received", "Shutting Down", "Cooldown"};
 int heaterStateNum = 0;
 String heaterError[] = {
   "No Error",                     // 0 - No Error (0 - 1 = -1, but we treat 0 as no error)
@@ -118,7 +120,8 @@ String heaterError[] = {
   "Motor Failure",                // 7 - Motor Failure (7 - 1 = 6)
   "Comms lost",       // 8 - Serial connection lost (8 - 1 = 7)
   "Fire Out",         // 9 - Fire is extinguished (9 - 1 = 8)
-  "Temp sensor failed"    // 10 - Temperature sensor failure (10 - 1 = 9)
+  "Temp sensor failed",    // 10 - Temperature sensor failure (10 - 1 = 9)
+  "Multiple Starts Failed. Check Fuel." // Fuel failure. Empty or restricted. (11 - 1 = 10)
 };
 int heaterErrorNum = 0;
 int heaterinternalTemp = 0;
@@ -141,7 +144,7 @@ void processFrame(uint8_t* frame);
 int controlEnable = 1;
 
 // set the currentTemperature default to something outside the usual range
-float currentTemperature = -200;
+float currentTemperature = -200.0f;
 
 float setTemperature = 0;
 float heaterCommand = 0;
@@ -464,6 +467,7 @@ void setup() {
     controlEnable = 0;
     uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
     sendData(data1, 24); // Assuming sendData is your function to send commands to the heater
+    cshut = 1;
     Serial.println("Heater shutdown command received");
     request->send(200, "text/plain", "Heater shutdown command processed");
   });
@@ -614,15 +618,24 @@ void loop() {
     int glowPlugCurrent = (int(Data[38]) << 8) | int(Data[39]);
     glowPlugCurrent_Amps = glowPlugCurrent / 100.0;
     pumpHz = int(Data[40] * 0.1);  //Convert to Hz
-    heaterErrorNum = int(Data[41]);
+    heaterErrorNum = int(Data[27]);
 
     memset(combinedFrame, 0, COMBINED_FRAME_SIZE);
     static unsigned long lastMeterUpdate = 0;
     
-    if (heaterErrorNum > 1) {
+    if (heaterErrorNum > 1 && controlEnable ) {
       controlEnable = 0;  // Disable control
       Serial.println("Heater control turned off due to error.");
+      message = "Heater control turned off due to error.";
       // Set LED to constant ON to indicate low voltage shutdown
+      flashLength = 1000000;  // A very long time to make it effectively constant ON
+      digitalWrite(LED_BUILTIN, HIGH);
+    }
+
+    if (heaterStateNum >= 6 && !cshut && controlEnable) {
+      controlEnable = 0;  // Disable control
+      Serial.println("Heater shutdown unexpectedly. Disabling Thermostat.");
+      message = "Heater shutdown unexpectedly. Disabling Thermostat.";
       flashLength = 1000000;  // A very long time to make it effectively constant ON
       digitalWrite(LED_BUILTIN, HIGH);
     }
@@ -635,8 +648,8 @@ void loop() {
     }
 
     // Adjust temperature for negative values
-    if (currentTemperature > 155 && currentTemperature <= 255) {
-      currentTemperature -= 256;
+    if (currentTemperature > 155.0f && currentTemperature <= 255.0f) {
+      currentTemperature -= 256.0f;
     }
     if (firstRun) {
       targetSetTemperature = setTemperature;
@@ -654,6 +667,7 @@ void loop() {
           uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
           sendData(data1, 24);
           Serial.println("Frost Mode: Starting Heater");
+          message = "Front Mode Start";
         }
       }
     }
@@ -714,6 +728,7 @@ void loop() {
       if (setTemperature <= (currentTemperature - 3) && (heaterStateNum == 5 || heaterStateNum == 2)) {
         uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
         sendData(data1, 24);
+        cshut = 1;
         flashLength = 3000;
         Serial.println("  Stopping Heater");
       }
@@ -773,18 +788,20 @@ void loop() {
     }
 
     if (walltemp > -55 && walltemp < 125) { // Valid range for DS18B20
-      if (walltemp >= currentTemperature + gapC && voltagegood) { 
-        digitalWrite(WALL_FAN_RELAY_PIN, HIGH);
-        wallfan = 1;
-        wallfandelay = 0; // Reset delay if conditions are met for turning on
-      } else {
-        if (wallfandelay == 0) {
-          wallfandelay = millis() + 600000; // Set delay for 10 minutes (600000 milliseconds)
-        } else if (millis() >= wallfandelay) {
-          digitalWrite(WALL_FAN_RELAY_PIN, LOW);
-          wallfan = 0;
+      if (currentTemperature != -200.0f) {
+        if (walltemp >= currentTemperature + gapC && voltagegood) { 
+          digitalWrite(WALL_FAN_RELAY_PIN, HIGH);
+          wallfan = 1;
+          wallfandelay = 0; // Reset delay if conditions are met for turning on
+        } else {
+          if (wallfandelay == 0) {
+            wallfandelay = millis() + 600000; // Set delay for 10 minutes (600000 milliseconds)
+          } else if (millis() >= wallfandelay) {
+            digitalWrite(WALL_FAN_RELAY_PIN, LOW);
+            wallfan = 0;
+          }
         }
-      }
+      }  
     }
 
     lastSensorRead = millis();
@@ -850,6 +867,7 @@ void loop() {
       controlEnable = 0;
       uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
       sendData(data1, 24);
+      cshut = 1;
     }
     
     // Check if supply voltage is below safe threshold
@@ -860,9 +878,11 @@ void loop() {
       // Turn off the heater if it's currently enabled
       uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
       sendData(data1, 24);
+      cshut = 1;
       controlEnable = 0;  // Disable control
-      voltageWarning = "Heater shut off due to low voltage";
+      voltageWarning = "Low voltage!";
       Serial.println("Heater turned off due to low voltage: " + String(supplyVoltage, 1) + "V");
+      message = "Heater turned off due to low votage.";
       // Set LED to constant ON to indicate low voltage shutdown
       flashLength = 1000000;  // A very long time to make it effectively constant ON
       digitalWrite(LED_BUILTIN, HIGH);
@@ -882,6 +902,7 @@ void loop() {
     jsonDoc["setTemp"] = celsiusToFahrenheit(setTemperature);
     jsonDoc["state"] = heaterState[heaterStateNum];
     jsonDoc["error"] = heaterError[heaterErrorNum];
+    jsonDoc["errornum"] = heaterErrorNum;
     jsonDoc["heaterHourMeter"] = heaterRunTime / 3600.0;
     jsonDoc["uptime"] = uptime / 1000;
     jsonDoc["time"] = timeClient.getFormattedTime();
@@ -913,6 +934,7 @@ void loop() {
     jsonDoc["ductfandelay"] = max(0UL, (ductfandelay - millis()) / 1000UL); // Convert to seconds, ensuring no negative values
     jsonDoc["wallfandelay"] = max(0UL, (wallfandelay - millis()) / 1000UL); // Convert to seconds, ensuring no negative values
     jsonDoc["tempHistory"] = serializeTempHistory();
+    jsonDoc["message"] = message;
 
     String jsonString;
     serializeJson(jsonDoc, jsonString);
