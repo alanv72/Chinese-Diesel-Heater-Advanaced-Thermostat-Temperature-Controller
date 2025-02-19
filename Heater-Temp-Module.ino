@@ -337,14 +337,16 @@ void setup() {
   });
 
   server.on("/setWallTempTrigger", HTTP_POST, [](AsyncWebServerRequest* request) {
-    String temp = request->arg("trigger");
-    float triggerTempF = temp.toFloat();
+      String temp = request->arg("trigger");
+      float triggerTempDeltaF = temp.toFloat();
 
-    // Convert to Celsius for internal use
-    walltemptrigger = fahrenheitToCelsius(triggerTempF);
-    preferences.putFloat("walltemptrigger", walltemptrigger); // Save the new trigger value
+      // Convert delta from Fahrenheit to Celsius
+      float triggerTempDeltaC = triggerTempDeltaF * 5.0 / 9.0;
+      walltemptrigger = triggerTempDeltaC;
+      // Store the delta in Celsius for internal use
+      preferences.putFloat("walltemptrigger", triggerTempDeltaC); // Save the delta in Celsius
 
-    request->send(200, "text/plain", "Wall temperature trigger updated");
+      request->send(200, "text/plain", "Wall temperature trigger delta updated");
   });
   
   server.on("/settemp", HTTP_POST, [](AsyncWebServerRequest* request) {
@@ -763,14 +765,21 @@ void loop() {
     }
 
     // Control for wall fan
+    float gapC;
+    if (walltemptrigger >= -1 && walltemptrigger <= 10) {
+      gapC = walltemptrigger; // Use the set trigger if it's within the valid range
+    } else {
+      gapC = 3; // Default to 3 degrees Celsius if the trigger is out of range
+    }
+
     if (walltemp > -55 && walltemp < 125) { // Valid range for DS18B20
-      if (walltemp >= walltemptrigger && voltagegood) { 
+      if (walltemp >= currentTemperature + gapC && voltagegood) { 
         digitalWrite(WALL_FAN_RELAY_PIN, HIGH);
         wallfan = 1;
         wallfandelay = 0; // Reset delay if conditions are met for turning on
       } else {
         if (wallfandelay == 0) {
-          wallfandelay = millis() + 300000; // Set delay for 5 minutes (300000 milliseconds)
+          wallfandelay = millis() + 600000; // Set delay for 10 minutes (600000 milliseconds)
         } else if (millis() >= wallfandelay) {
           digitalWrite(WALL_FAN_RELAY_PIN, LOW);
           wallfan = 0;
@@ -897,7 +906,7 @@ void loop() {
     jsonDoc["pumpHz"] = pumpHz;
     jsonDoc["controlEnable"] = controlEnable;
     jsonDoc["walltemp"] = celsiusToFahrenheit(walltemp);
-    jsonDoc["walltemptrigger"] = celsiusToFahrenheit(walltemptrigger);
+    jsonDoc["walltemptrigger"] = (walltemptrigger * 9.0 / 5.0);
     jsonDoc["ductfan"] = ductfan;
     jsonDoc["wallfan"] = wallfan;
     jsonDoc["voltagegood"] = voltagegood;
