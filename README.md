@@ -1,4 +1,4 @@
-Changed the Wall control logic to be delta between cabin air and inside the wall that encloses the ducting.
+Corrected reading Error codes and added logic to detect other shutdowns outside of ESP32 control. Changed the Wall control logic to be delta between cabin air and inside the wall that encloses the ducting.
 
 Lot's of new undocumented features ;)
 
