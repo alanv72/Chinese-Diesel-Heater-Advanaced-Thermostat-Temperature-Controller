@@ -1,3 +1,5 @@
+Changed the Wall control logic to be delta between cabin air and inside the wall that encloses the ducting.
+
 Lot's of new undocumented features ;)
 
 added a ext temp sensor (DS18B20) to run some duct fans that are triggered by 5v logic relays. Fixed calcs for fuel and testing a few avg methods. Add fuel gauge and a temp history chart. Use the file upload to saving frontend index_html changes. Fallback html incase I break frontend with JS updates. Added a url to reset stats that are persistent in prefs. I have pins soldered to up/down buttons to mimic button push since I can't get the controller to accept temp changes thru the data protocol.
