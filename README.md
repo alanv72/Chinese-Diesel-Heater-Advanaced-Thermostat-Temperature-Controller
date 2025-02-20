@@ -1,3 +1,5 @@
+Add voltage history graph.
+
 Updated error message handling on the frontend. Note: the index_html needs to be loaded to SPIFFS. You can do that thru the /fallback file upload at the bottom.
 ![image](https://github.com/user-attachments/assets/0b64eb28-4ce3-459e-9299-7ece548c891a)
 
