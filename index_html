@@ -802,6 +802,16 @@ document.addEventListener('DOMContentLoaded', function() {
             var voltageHistory = JSON.parse(data.voltageHistory);
             voltageChart.data.labels = voltageHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
             voltageChart.data.datasets[0].data = voltageHistory.voltageHistory;
+            
+            // Dynamically adjust the minimum if voltage drops below 10V
+            const minVoltage = Math.min(...voltageHistory.voltageHistory);
+            if (minVoltage < 10) {
+              voltageChart.options.scales.y.suggestedMin = Math.floor(minVoltage) - 1;  // Round down and add buffer
+            } else {
+              voltageChart.options.scales.y.suggestedMin = 10;  // Reset to default if all values are >= 10
+            }
+            voltageChart.options.scales.y.suggestedMax = 15;  // Always keep max at 15V
+
             voltageChart.update();
           }
 
