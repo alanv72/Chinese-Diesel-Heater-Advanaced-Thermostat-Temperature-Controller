@@ -98,6 +98,10 @@ String message = "";
 float tempHistory[TEMP_HISTORY_SIZE];
 unsigned long tempTimestamps[TEMP_HISTORY_SIZE];
 int tempIndex = 0;
+#define VOLTAGE_HISTORY_SIZE 720  // Same as temperature: 12 hours of data
+float voltageHistory[VOLTAGE_HISTORY_SIZE];
+unsigned long voltageTimestamps[VOLTAGE_HISTORY_SIZE];
+int voltageIndex = 0;
 // #define SAMPLE_SIZE 480 // 8 hours * 60 samples/hour
 // float gphSamples[SAMPLE_SIZE] = {0};
 // unsigned long sampleTimestamps[SAMPLE_SIZE] = {0};
@@ -279,6 +283,11 @@ void setup() {
   for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
     tempHistory[i] = -200.0; // Initialize with an out-of-range value
     tempTimestamps[i] = 0;
+  }
+
+  for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
+    voltageHistory[i] = -1.0;  // Initialize with an invalid value
+    voltageTimestamps[i] = 0;
   }
 
   pinMode(increaseTempPin, OUTPUT);
@@ -934,6 +943,7 @@ void loop() {
     jsonDoc["ductfandelay"] = max(0UL, (ductfandelay - millis()) / 1000UL); // Convert to seconds, ensuring no negative values
     jsonDoc["wallfandelay"] = max(0UL, (wallfandelay - millis()) / 1000UL); // Convert to seconds, ensuring no negative values
     jsonDoc["tempHistory"] = serializeTempHistory();
+    jsonDoc["voltageHistory"] = serializeVoltageHistory();
     jsonDoc["message"] = message;
 
     String jsonString;
@@ -987,8 +997,12 @@ void loop() {
     tempHistory[tempIndex] = currentTemperature;
     tempTimestamps[tempIndex] = millis();
     tempIndex = (tempIndex + 1) % TEMP_HISTORY_SIZE; // Circular buffer index
+    // Add voltage history update
+    voltageHistory[voltageIndex] = supplyVoltage;
+    voltageTimestamps[voltageIndex] = millis();
+    voltageIndex = (voltageIndex + 1) % VOLTAGE_HISTORY_SIZE;
   }
-  
+ 
   // unsigned long rollavgcurrentTime = millis();
   // if (rollavgcurrentTime - lastSampleTime >= 60000) { // Every minute
   //   lastSampleTime = rollavgcurrentTime;
@@ -1158,6 +1172,24 @@ String serializeTempHistory() {
   }
   String output;
   serializeJson(tempJsonDoc, output);
+  return output;
+}
+
+String serializeVoltageHistory() {
+  DynamicJsonDocument voltageJsonDoc(8192);  // Adjust size as necessary
+  JsonArray voltageArray = voltageJsonDoc.createNestedArray("voltageHistory");
+  JsonArray timeArray = voltageJsonDoc.createNestedArray("timestamps");
+
+  unsigned long currentTime = millis();
+  for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
+    int realIndex = (voltageIndex + i) % VOLTAGE_HISTORY_SIZE;
+    if (voltageHistory[realIndex] >= 0 && currentTime - voltageTimestamps[realIndex] <= 43200000) {  // 12 hours
+      voltageArray.add(voltageHistory[realIndex]);
+      timeArray.add((currentTime - voltageTimestamps[realIndex]) / 1000);
+    }
+  }
+  String output;
+  serializeJson(voltageJsonDoc, output);
   return output;
 }
 
