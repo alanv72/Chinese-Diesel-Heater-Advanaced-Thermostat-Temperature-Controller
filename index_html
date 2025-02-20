@@ -135,9 +135,10 @@
     }
     /* Style for the thermostat control toggle */
     #thermostatControl {
-      width: 80px;
+      width: 110px;
       position: fixed;
       top: 110px; /* Adjust based on the height of the fuel gauge */
+      left: 1px;
       z-index: 1; /* Ensure it's above the gauge */
     }
     #thermostatControl input[type="checkbox"] {
@@ -146,7 +147,8 @@
     #thermostatControl label {
       padding: 5px 10px;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 11.5px;
+      border-radius: 4px;
     }
     #thermostatControl input[type="checkbox"]:checked + label {
       background-color: #e67e22; /* Active state color */
@@ -226,6 +228,31 @@
       min-width: 50px;
       min-height: 20px;
     }
+    #heatererror {
+      position: fixed; /* or absolute, depending on if you want it relative to viewport or document */
+      top: 20%; /* Position the top edge at 50% of the viewport height */
+      left: 50%; /* Position the left edge at 50% of the viewport width */
+      transform: translate(-50%, -50%); /* Shift it back by half its width and height */
+      width: 200px; /* Fixed width as specified */
+      background-color: black; /* Black background */
+      padding: 10px 20px; /* Padding for some space around the text */
+      border-radius: 5px; /* Rounded corners */
+      display: none; /* Initially hidden */
+      text-align: center;
+      z-index: 1001;
+    }
+    #heatererrortxt {
+      display: inline-block; /* Allows padding and background to apply while keeping it inline */
+      color: red; /* Red text */
+      font-weight: bold; /* Optional: makes the text stand out more */
+      animation: blink 1s infinite; /* Slow blink animation */
+    }
+    /* Define the blink animation */
+    @keyframes blink {
+        0% { opacity: 1; }    /* Fully visible */
+        50% { opacity: 0.5; }   /* Half transparent */
+        100% { opacity: 1; }  /* Back to fully visible */
+    }
   </style>
 </head>
 <body>
@@ -260,6 +287,9 @@
     <div id="thermostatControl">
     <input type="checkbox" id="thermostatEnable" onchange="toggleThermostat(this.checked)">
     <label for="thermostatEnable" id="thermostatLabel">Thermostat Off</label>
+  </div>
+  <div id="heatererror">
+      <span id="heatererrortxt"></span>
   </div>
   <h1>Heater Control</h1>
   <div id="message"></div>
@@ -617,6 +647,15 @@ document.addEventListener('DOMContentLoaded', function() {
           var runtimeHours = data.rollingRuntimeHours === null ? '∞' : data.rollingRuntimeHours.toFixed(2);
           document.getElementById("rollingRuntimeHours").textContent = runtimeHours + " Hrs";
           document.getElementById("tankruntime").textContent = data.remainingRuntimeHours.toFixed(2) + "Hrs";
+
+          var errorElement = document.getElementById("heatererror");
+          if (data.errornum > 1) {
+              document.getElementById("heatererrortxt").textContent = (data.error || "Unknown Error");
+              errorElement.style.display = "inline-block";
+          } else {
+              document.getElementById("heatererrortxt").textContent = ""; // Clear error if no significant error
+              errorElement.style.display = "none";
+          }
 
           // Update duct fan status
           var ductFanStatus = document.getElementById('ductfan');
