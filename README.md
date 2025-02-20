@@ -1,3 +1,5 @@
+Upload js and ico files along with the index_html to SPIFF with /fallback
+
 Added voltage history graph.
 
 Updated error message handling on the frontend. Note: the index_html needs to be loaded to SPIFFS. You can do that thru the /fallback file upload at the bottom.
