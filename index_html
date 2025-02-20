@@ -333,6 +333,7 @@
     
   </div>
   <canvas id="tempChart" width="400" height="200"></canvas>
+  <canvas id="voltageChart" width="400" height="150"></canvas>
   <div class="file-area">
     <h2>File Upload</h2>
     <form method="POST" action="/upload" enctype="multipart/form-data">
@@ -575,6 +576,75 @@ document.addEventListener('DOMContentLoaded', function() {
     }]
   });
 
+  // Voltage Chart initialization (new)
+  var ctxVoltage = document.getElementById('voltageChart').getContext('2d');
+  var voltageChart = new Chart(ctxVoltage, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Voltage (V)',
+        data: [],
+        fill: false,
+        borderColor: 'blue',
+        tension: 0.1
+      }]
+    },
+    options: {
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            unit: 'minute',
+            displayFormats: {
+              minute: 'HH:mm'
+            },
+            tooltipFormat: 'HH:mm'
+          },
+          adapters: {
+            date: {
+              locale: customLocale
+            }
+          },
+          title: {
+            display: false,
+            text: 'Time'
+          }
+        },
+        y: {
+          title: {
+            display: false,
+            text: 'Voltage (V)',
+            color: 'white'
+          },
+          suggestedMin: 9,
+          suggestedMax: 15,  // Adjust based on your expected voltage range
+          ticks: {
+            callback: function(value) {
+              return value + 'V'; // Add 'V' to ticks
+            }
+          }  
+        }
+      },
+      plugins: {
+        legend: {
+          labels: {
+            color: 'grey'
+          }
+        }
+      }
+    },
+    plugins: [{
+      beforeDraw: (chart) => {
+        const ctx = chart.canvas.getContext('2d');
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        ctx.fillStyle = 'lightyellow';
+        ctx.fillRect(0, 0, chart.width, chart.height);
+        ctx.restore();
+      }
+    }]
+  });
 
   if (tempSlider) {
     tempSlider.oninput = function() {
@@ -725,6 +795,14 @@ document.addEventListener('DOMContentLoaded', function() {
             tempChart.data.labels = tempHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
             tempChart.data.datasets[0].data = tempHistory.tempHistory;
             tempChart.update();
+          }
+
+          // Update voltage history chart (new)
+          if (data.voltageHistory) {
+            var voltageHistory = JSON.parse(data.voltageHistory);
+            voltageChart.data.labels = voltageHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
+            voltageChart.data.datasets[0].data = voltageHistory.voltageHistory;
+            voltageChart.update();
           }
 
           // Start or reset the interval for periodic updates of setTemp
