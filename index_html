@@ -253,7 +253,24 @@
         50% { opacity: 0.5; }   /* Half transparent */
         100% { opacity: 1; }  /* Back to fully visible */
     }
+    #message {
+      position: fixed; /* or absolute, depending on if you want it relative to viewport or document */
+      bottom: .01%; /* Position the top edge at 50% of the viewport height */
+      left: 50%; /* Position the left edge at 50% of the viewport width */
+      transform: translate(-50%, -50%); /* Shift it back by half its width and height */
+      width: 300px; /* Fixed width as specified */
+      background-color: black; /* Black background */
+      padding: 5px 10px; /* Padding for some space around the text */
+      border-radius: 5px; /* Rounded corners */
+      text-align: center;
+      display: none; /* Initially hidden */
+      z-index: 1001;
+    }
   </style>
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
 </head>
 <body>
 <button id="shutdownHeater" onclick="shutdownHeater()">Shut Down Heater</button>
@@ -325,7 +342,7 @@
     <p>Tank Avg: <span id="avgGPH">0.00</span></p>
     <p>Tank Runtime: <span id="tankruntime">0.00</span></p>
     <p>Lifetime: <span id="lifetimeFuel">0</span></p>
-    <button onclick="resetAverage()">Reset Average</button><button onclick="resetTank()">Reset Tank</button>
+    <button onclick="resetTank()">Reset Tank</button>
     
     <h2>Tank Management</h2>
     <p>Current Tank Size: <span id="currentTankSize">0</span></p>
@@ -472,12 +489,6 @@ function resetTank() {
   xhr.send();
 }
 
-function resetAverage() {
-  var xhr = new XMLHttpRequest();
-  xhr.open("POST", "/resetAverage");
-  xhr.send();
-}
-
 function shutdownHeater() {
   var xhr = new XMLHttpRequest();
   xhr.open("POST", "/shutdownHeater"); // Assuming this is your endpoint
@@ -487,9 +498,7 @@ function shutdownHeater() {
       console.log("Heater shutdown command sent");
       // Optionally, update UI to reflect this action or show a status message
       document.getElementById("message").textContent = "Heater shutdown command sent";
-    } else {
-      console.error("Failed to send heater shutdown command");
-      document.getElementById("message").textContent = "Failed to shut down heater";
+      document.getElementById("message").style.display = "inline-block";
     }
   };
   xhr.send();
@@ -669,177 +678,155 @@ document.addEventListener('DOMContentLoaded', function() {
 
   var evtSource = new EventSource("/events");
   
-  evtSource.onmessage = function(e) {
-    console.log("Event received:", e.data);
-    if (e.data) {  // Check if e.data is not undefined
+evtSource.onmessage = function(e) {
+  console.log("Event received:", e.data);
+  // Ensure e.data exists, is a string, and has content
+  if (e.data && typeof e.data === 'string' && e.data.trim() !== '') {
+    try {
       var eventLines = e.data.split('\n');
-      var eventName = eventLines[0].split(': ')[1];
-      var eventData = eventLines[1].split(': ')[1];
+      // Check if we have at least two lines (event and data)
+      if (eventLines.length < 2) {
+        console.error("Received malformed SSE event:", e.data);
+        return;
+      }
+
+      var eventNameLine = eventLines[0].split(': ');
+      var eventDataLine = eventLines[1].split(': ');
+
+      // Verify the event line starts with "event" and has a name
+      if (eventNameLine[0] !== 'event' || !eventNameLine[1]) {
+        console.error("Invalid event name format:", eventLines[0]);
+        return;
+      }
+
+      // Verify the data line starts with "data" and has content
+      if (eventDataLine[0] !== 'data' || !eventDataLine[1]) {
+        console.error("Invalid event data format:", eventLines[1]);
+        return;
+      }
+
+      var eventName = eventNameLine[1];
+      var eventData = eventDataLine[1];
 
       if (eventName === 'heater_update') {
-        try {
-          var data = JSON.parse(eventData);
-          var currentTime = new Date().getTime(); // Current time in milliseconds
+        var data = JSON.parse(eventData);
+        var currentTime = new Date().getTime();
 
-          // Check if a minute has passed since the last heater_update for setTemp updates
-          if (currentTime - lastUpdateTime >= 20000) { // 60000 ms = 1 minute
-            lastUpdateTime = currentTime; // Update the last update time
-
-            // Update slider and display for setTemp
-            updateSliderAndDisplay(data);
-          }
-
-          // Update everything else on every heater_update
-          document.getElementById("currentTemp").textContent = data.currentTemp.toFixed(1) + "°F";
-          document.getElementById("heaterState").textContent = data.state;
-          document.getElementById("runtime").textContent = (data.heaterHourMeter).toFixed(2) + "Hrs";
-          
-          document.getElementById("currentTime").querySelector("span").textContent = data.time;
-          document.getElementById("currentDate").querySelector("span").textContent = data.date;
-          document.getElementById("currentWallTempTrigger").textContent = data.walltemptrigger.toFixed(0);
-
-          // Format and update uptime
-          var uptimeSpan = document.getElementById("uptime").querySelector("span");
-          uptimeSpan.textContent = formatUptime(parseInt(data.uptime)); // Convert string to int and format
-
-          document.getElementById("lifetimeFuel").textContent = data.fuelConsumedLifetime.toFixed(2) + " Gal";
-          document.getElementById("tankFuel").textContent = data.fuelConsumedTank.toFixed(3) + " Gal";
-          document.getElementById("currentUsage").textContent = data.currentUsage.toFixed(3) + " GPH";
-          document.getElementById("currentTankSize").textContent = data.tankSizeGallons.toFixed(0) + "Gal";
-          document.getElementById("avgGPH").textContent = data.averageGPH.toFixed(2) + "GPH";
-          document.getElementById("fanSpeed").textContent = data.fanSpeed + "RPM";
-          document.getElementById("supplyVoltage").textContent = data.supplyVoltage.toFixed(1) + "V";
-          document.getElementById("voltageWarning").textContent = data.voltageWarning;
-          document.getElementById("glowPlugHours").textContent = data.glowPlugHours.toFixed(2) + "Hrs";
-          document.getElementById("frostMode").checked = data.frostMode;
-
-          document.getElementById("rollingAvgGPH").textContent = data.rollingAvgGPH.toFixed(2) + " GPH";
-          var runtimeHours = data.rollingRuntimeHours === null ? '∞' : data.rollingRuntimeHours.toFixed(2);
-          document.getElementById("rollingRuntimeHours").textContent = runtimeHours + " Hrs";
-          document.getElementById("tankruntime").textContent = data.remainingRuntimeHours.toFixed(2) + "Hrs";
-
-          var errorElement = document.getElementById("heatererror");
-          if (data.errornum > 1) {
-              document.getElementById("heatererrortxt").textContent = (data.error || "Unknown Error");
-              errorElement.style.display = "inline-block";
-          } else {
-              document.getElementById("heatererrortxt").textContent = ""; // Clear error if no significant error
-              errorElement.style.display = "none";
-          }
-
-          // Update duct fan status
-          var ductFanStatus = document.getElementById('ductfan');
-          if (ductFanStatus) {
-            ductFanStatus.textContent = data.ductfan ? "On" : "Off";
-          }
-
-          // Update wall fan status
-          var wallFanStatus = document.getElementById('wallfan');
-          if (wallFanStatus) {
-            wallFanStatus.textContent = data.wallfan ? "On" : "Off";
-          }
-
-          // Update thermostat label
-          var thermostatLabel = document.getElementById("thermostatLabel");
-          thermostatLabel.textContent = data.controlEnable ? "Thermostat On" : "Thermostat Off";
-          thermostatLabel.classList.toggle("active", data.controlEnable);
-          document.getElementById("thermostatEnable").checked = data.controlEnable;
-
-          // Update new fields
-          document.getElementById("heaterInternalTemp").textContent = (data.heaterinternalTemp * 9/5 + 32).toFixed(1) + "°F";
-          document.getElementById("glowPlugCurrent").textContent = data.glowPlugCurrent_Amps.toFixed(2);
-          document.getElementById("pumpHz").textContent = data.pumpHz.toFixed(1);
-          document.getElementById("walltemp").textContent = data.walltemp.toFixed(1);
-
-          // Update fuel gauge
-          var tankSizeGallons = data.tankSizeGallons;
-          var fuelConsumedTank = data.fuelConsumedTank;
-          var gallonsLeft = tankSizeGallons > 0 ? tankSizeGallons - fuelConsumedTank : 0;
-          gallonsLeft = Math.max(0, gallonsLeft); // Ensure it doesn't go below 0
-          // Calculate percentage for gauge fill
-          var fuelPercentage = tankSizeGallons > 0 ? (gallonsLeft / tankSizeGallons) * 100 : 0;
-          fuelPercentage = Math.max(0, Math.min(100, fuelPercentage)); // Clamp between 0 and 100
-
-          // Update gauge display
-          document.getElementById("fuelGallonsLeft").textContent = gallonsLeft.toFixed(2) + " Gal";
-          var rotation = (fuelPercentage / 100) * 180; // Convert percentage to degrees (0-180°)
-          document.getElementById("fuelGaugeFill").style.transform = `rotate(${rotation}deg)`;
-
-          // Change color based on fuel level
-          var fuelGaugeFill = document.getElementById("fuelGaugeFill");
-          if (fuelPercentage < 10) {
-            fuelGaugeFill.style.backgroundColor = "#FF0000"; // Red for low fuel
-          } else if (fuelPercentage < 25) {
-            fuelGaugeFill.style.backgroundColor = "#FFA500"; // Orange for medium fuel
-          } else if (fuelPercentage < 50) {
-            fuelGaugeFill.style.backgroundColor = "#FFFF"; // yellow for 3/4tank
-          } else {
-            fuelGaugeFill.style.backgroundColor = "#327A24"; // Green for high fuel
-          }
-
-          var fuelUsed = data.fuelConsumedTank;
-          var tankSize = data.tankSizeGallons;
-          
-          var messageDiv = document.getElementById("message");
-          
-          if (tankSize > 0 && fuelUsed >= tankSize * 0.75) {
-            messageDiv.textContent = "Warning: Fuel level is low!";
-          } else {
-            messageDiv.textContent = "";
-          }
-
-          // Update temperature history chart
-          if (data.tempHistory) {
-            var tempHistory = JSON.parse(data.tempHistory);  // Parse the JSON string back to object
-            // Convert timestamps to Date objects for Chart.js time scale
-            tempChart.data.labels = tempHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
-            tempChart.data.datasets[0].data = tempHistory.tempHistory;
-            tempChart.update();
-          }
-
-          // Update voltage history chart (new)
-          if (data.voltageHistory) {
-            var voltageHistory = JSON.parse(data.voltageHistory);
-            voltageChart.data.labels = voltageHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
-            voltageChart.data.datasets[0].data = voltageHistory.voltageHistory;
-            
-            // Dynamically adjust the minimum if voltage drops below 10V
-            const minVoltage = Math.min(...voltageHistory.voltageHistory);
-            if (minVoltage < 10) {
-              voltageChart.options.scales.y.suggestedMin = Math.floor(minVoltage) - 1;  // Round down and add buffer
-            } else {
-              voltageChart.options.scales.y.suggestedMin = 10;  // Reset to default if all values are >= 10
-            }
-            voltageChart.options.scales.y.suggestedMax = 15;  // Always keep max at 15V
-
-            voltageChart.update();
-          }
-
-          // Start or reset the interval for periodic updates of setTemp
-          clearInterval(intervalId);
-          intervalId = setInterval(() => {
-            // Fetch current temp from server every minute if not updated by heater_update for setTemp
-            var xhr = new XMLHttpRequest();
-            xhr.open("GET", "/getcurrenttemp", true);
-            xhr.onload = function() {
-              if (xhr.status === 200) {
-                var tempData = JSON.parse(xhr.responseText);
-                updateSliderAndDisplay(tempData);
-              }
-            };
-            xhr.send();
-          }, 20000);
-
-        } catch(error) {
-          console.error("Failed to parse JSON:", error);
+        // Check if 20 seconds have passed since the last update for setTemp
+        if (currentTime - lastUpdateTime >= 20000) {
+          lastUpdateTime = currentTime;
+          updateSliderAndDisplay(data);
         }
+
+        // Update UI elements
+        document.getElementById("currentTemp").textContent = data.currentTemp.toFixed(1) + "°F";
+        document.getElementById("heaterState").textContent = data.state;
+        document.getElementById("runtime").textContent = data.heaterHourMeter.toFixed(2) + "Hrs";
+        document.getElementById("currentTime").querySelector("span").textContent = data.time;
+        document.getElementById("currentDate").querySelector("span").textContent = data.date;
+        document.getElementById("currentWallTempTrigger").textContent = data.walltemptrigger.toFixed(0);
+        document.getElementById("uptime").querySelector("span").textContent = formatUptime(parseInt(data.uptime));
+        document.getElementById("lifetimeFuel").textContent = data.fuelConsumedLifetime.toFixed(2) + " Gal";
+        document.getElementById("tankFuel").textContent = data.fuelConsumedTank.toFixed(3) + " Gal";
+        document.getElementById("currentUsage").textContent = data.currentUsage.toFixed(3) + " GPH";
+        document.getElementById("currentTankSize").textContent = data.tankSizeGallons.toFixed(0) + "Gal";
+        document.getElementById("avgGPH").textContent = data.averageGPH.toFixed(2) + "GPH";
+        document.getElementById("fanSpeed").textContent = data.fanSpeed + "RPM";
+        document.getElementById("supplyVoltage").textContent = data.supplyVoltage.toFixed(1) + "V";
+        document.getElementById("voltageWarning").textContent = data.voltageWarning;
+        document.getElementById("glowPlugHours").textContent = data.glowPlugHours.toFixed(2) + "Hrs";
+        document.getElementById("frostMode").checked = data.frostMode;
+        document.getElementById("rollingAvgGPH").textContent = data.rollingAvgGPH.toFixed(2) + " GPH";
+        document.getElementById("rollingRuntimeHours").textContent = (data.rollingRuntimeHours === null ? '∞' : data.rollingRuntimeHours.toFixed(2)) + " Hrs";
+        document.getElementById("tankruntime").textContent = data.remainingRuntimeHours.toFixed(2) + "Hrs";
+
+        var errorElement = document.getElementById("heatererror");
+        if (data.errornum > 1) {
+          document.getElementById("heatererrortxt").textContent = data.error || "Unknown Error";
+          errorElement.style.display = "inline-block";
+        } else {
+          document.getElementById("heatererrortxt").textContent = "";
+          errorElement.style.display = "none";
+        }
+
+        document.getElementById('ductfan').textContent = data.ductfan ? "On" : "Off";
+        document.getElementById('wallfan').textContent = data.wallfan ? "On" : "Off";
+        var thermostatLabel = document.getElementById("thermostatLabel");
+        thermostatLabel.textContent = data.controlEnable ? "Thermostat On" : "Thermostat Off";
+        thermostatLabel.classList.toggle("active", data.controlEnable);
+        document.getElementById("thermostatEnable").checked = data.controlEnable;
+        document.getElementById("heaterInternalTemp").textContent = (data.heaterinternalTemp * 9/5 + 32).toFixed(1) + "°F";
+        document.getElementById("glowPlugCurrent").textContent = data.glowPlugCurrent_Amps.toFixed(2);
+        document.getElementById("pumpHz").textContent = data.pumpHz.toFixed(1);
+        document.getElementById("walltemp").textContent = data.walltemp.toFixed(1);
+
+        // Fuel gauge
+        var tankSizeGallons = data.tankSizeGallons;
+        var fuelConsumedTank = data.fuelConsumedTank;
+        var gallonsLeft = tankSizeGallons > 0 ? tankSizeGallons - fuelConsumedTank : 0;
+        gallonsLeft = Math.max(0, gallonsLeft);
+        var fuelPercentage = tankSizeGallons > 0 ? (gallonsLeft / tankSizeGallons) * 100 : 0;
+        fuelPercentage = Math.max(0, Math.min(100, fuelPercentage));
+        document.getElementById("fuelGallonsLeft").textContent = gallonsLeft.toFixed(2) + " Gal";
+        var rotation = (fuelPercentage / 100) * 180;
+        document.getElementById("fuelGaugeFill").style.transform = `rotate(${rotation}deg)`;
+        var fuelGaugeFill = document.getElementById("fuelGaugeFill");
+        if (fuelPercentage < 10) fuelGaugeFill.style.backgroundColor = "#FF0000";
+        else if (fuelPercentage < 25) fuelGaugeFill.style.backgroundColor = "#FFA500";
+        else if (fuelPercentage < 50) fuelGaugeFill.style.backgroundColor = "#FFFF";
+        else fuelGaugeFill.style.backgroundColor = "#327A24";
+
+        var messageDiv = document.getElementById("message");
+        if (tankSizeGallons > 0 && fuelConsumedTank >= tankSizeGallons * 0.90) {
+          messageDiv.textContent = "Warning: Fuel level is low!";
+          messageDiv.style.display = "inline-block";
+        }
+
+        // Temperature chart
+        if (data.tempHistory) {
+          var tempHistory = JSON.parse(data.tempHistory);
+          tempChart.data.labels = tempHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
+          tempChart.data.datasets[0].data = tempHistory.tempHistory;
+          tempChart.update();
+        }
+
+        // Voltage chart
+        if (data.voltageHistory) {
+          var voltageHistory = JSON.parse(data.voltageHistory);
+          voltageChart.data.labels = voltageHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
+          voltageChart.data.datasets[0].data = voltageHistory.voltageHistory;
+          const minVoltage = Math.min(...voltageHistory.voltageHistory);
+          if (minVoltage < 10) {
+            voltageChart.options.scales.y.suggestedMin = Math.floor(minVoltage) - 1;
+          } else {
+            voltageChart.options.scales.y.suggestedMin = 10;
+          }
+          voltageChart.options.scales.y.suggestedMax = 15;
+          voltageChart.update();
+        }
+
+        clearInterval(intervalId);
+        intervalId = setInterval(() => {
+          var xhr = new XMLHttpRequest();
+          xhr.open("GET", "/getcurrenttemp", true);
+          xhr.onload = function() {
+            if (xhr.status === 200) {
+              var tempData = JSON.parse(xhr.responseText);
+              updateSliderAndDisplay(tempData);
+            }
+          };
+          xhr.send();
+        }, 20000);
       } else {
         console.log("Received unknown event:", eventName);
       }
-    } else {
-      console.error("Received an event with no data.");
+    } catch (error) {
+      console.error("Error processing SSE event:", error, "Raw data:", e.data);
     }
-  };
+  } else {
+    console.warn("Received empty or invalid SSE message:", e.data);
+  }
+};
 
   var listFilesBtn = document.getElementById('listFilesBtn');
   if (listFilesBtn) {
@@ -879,8 +866,8 @@ document.addEventListener('DOMContentLoaded', function() {
   };
 });
 </script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/date-fns/locale/en-US/index.js"></script>
+<script src="/chart.js"></script>
+<script src="/chartjs-adapter-date.js"></script>
+<script src="/index.js"></script>
 </body>
 </html>
