@@ -1,3 +1,5 @@
+added history charts with saves to json files on spiff and reload on boot. Fans are now controlled with PWM over IRLZ44 mosfet instead of simple relay. Still use the 3v to 5v shifter to ensure mosfet is completely on. shifted the software serial pin so that it doesn't interfere with Bluetooth in the future. Added outdoor temp to chart.
+
 Upload js and ico files along with the index_html to SPIFF with /fallback
 
 Added voltage history graph.
