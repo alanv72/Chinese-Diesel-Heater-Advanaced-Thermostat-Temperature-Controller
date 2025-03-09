@@ -1,4 +1,4 @@
-Fixed accumulators load on boot. Changed backend to all use UTC (no offset) with epochtime and updated frontend to apply offset based on client TZ for Date/Time. The chart data is displayed with realtive times thru serialize functions so no updates needed. Other minor fixes to html and js.
+Fixed accumulators load on boot. Changed backend to all use UTC (no offset) with epochtime and updated frontend to apply offset based on client TZ for Date/Time. The chart data is displayed with realtive times thru serialize functions so no updates needed. Other minor fixes to html and js. Amps are calculated based on measure current from each fan, heater controller, glowplug, and heater fan. 
 
 ![image](https://github.com/user-attachments/assets/d5e68c90-9f49-4518-9fbf-b4ddad9fa451)
 ![image](https://github.com/user-attachments/assets/f348b02c-d7fc-4913-bda0-565018380bb6)
