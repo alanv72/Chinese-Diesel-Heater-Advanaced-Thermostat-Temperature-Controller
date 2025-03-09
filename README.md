@@ -1,5 +1,9 @@
 Fixed accumulators load on boot. Changed backend to all use UTC (no offset) with epochtime and updated frontend to apply offset based on client TZ for Date/Time. The chart data is displayed with realtive times thru serialize functions so no updates needed. Other minor fixes to html and js.
 
+![image](https://github.com/user-attachments/assets/d5e68c90-9f49-4518-9fbf-b4ddad9fa451)
+![image](https://github.com/user-attachments/assets/f348b02c-d7fc-4913-bda0-565018380bb6)
+![image](https://github.com/user-attachments/assets/4951d689-65f7-4a4a-b5e5-3b1e316f39c8)
+
 added history charts with saves to json files on spiff and reload on boot. Fans are now controlled with PWM over IRLZ44 mosfet instead of simple relay. Still use the 3v to 5v shifter to ensure mosfet is completely on. shifted the software serial pin so that it doesn't interfere with Bluetooth in the future. Added outdoor temp to chart. add file management with delete function. TODO: add mqtt to HA for reporting and controls. add BLE fuctionality to interfade directly without wifi.
 
 ![image](https://github.com/user-attachments/assets/70a87fe1-5200-47be-acca-2c5edf089551)
