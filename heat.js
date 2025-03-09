@@ -720,84 +720,103 @@ tempChart = new Chart(ctx, {
   }]
 });
 
-  var ctxVoltage = document.getElementById('voltageChart').getContext('2d');
-  var voltageChart = new Chart(ctxVoltage, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
+var ctxVoltage = document.getElementById('voltageChart').getContext('2d');
+var voltageChart = new Chart(ctxVoltage, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      {
         label: 'Voltage (V)',
         data: [],
         fill: false,
         borderColor: 'red',
         tension: 0.1,
-        spanGaps: true
-      }]
-    },
-    options: {
-      scales: {
-        x: {
-          type: 'time',
-          time: {
-            unit: 'minute',
-            displayFormats: { minute: 'HH:mm' },
-            tooltipFormat: 'HH:mm'
-          },
-          adapters: { date: { locale: customLocale } },
-          title: { display: false, text: 'Time' }
-        },
-        y: {
-          title: { display: false, text: 'Voltage (V)', color: 'white' },
-          ticks: {
-            stepSize: 0.5,
-            callback: function(value) { return value + 'V'; }
-          },
-          afterDataLimits: function(scale) {
-            const voltages = scale.chart.data.datasets[0].data;
-            // Filter out null values for scaling
-            const validVoltages = voltages.filter(v => v !== null && !isNaN(v));
-            if (validVoltages.length === 0) return;
-            const dataMin = Math.min(...validVoltages);
-            const dataMax = Math.max(...validVoltages);
-            const midpoint = (dataMin + dataMax) / 2;
-            const range = dataMax - dataMin;
-            let min, max;
-            if (range < 3) {
-              min = midpoint - 1.5;
-              max = midpoint + 1.5;
-            } else {
-              min = dataMin - 0.25;
-              max = dataMax + 0.25;
-            }
-            min = Math.round(min / 0.5) * 0.5;
-            max = Math.round(max / 0.5) * 0.5;
-            // Enforce min to be at least 10 if dataMin >= 10, as per original logic
-            if (dataMin >= 10) {
-              min = 10;
-            }
-            // Enforce max to be at least 15, as per original logic
-            if (max < 15) {
-              max = 15;
-            }
-            // Explicitly set min and max to enforce the scaling
-            scale.options.min = min;
-            scale.options.max = max;
-          }
-        }
+        spanGaps: true,
+        yAxisID: 'y-voltage'
       },
-      plugins: { legend: { labels: { color: 'grey' } } }
-    },
-    plugins: [{
-      beforeDraw: (chart) => {
-        const ctx = chart.canvas.getContext('2d');
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-over';
-        ctx.fillStyle = 'lightyellow';
-        ctx.fillRect(0, 0, chart.width, chart.height);
-        ctx.restore();
+      {
+        label: 'Current (A)',
+        data: [],
+        fill: false,
+        borderColor: 'blue',
+        tension: 0.1,
+        spanGaps: true,
+        yAxisID: 'y-amps'
       }
-    }]
-  });
+    ]
+  },
+  options: {
+    scales: {
+      x: {
+        type: 'time',
+        time: { unit: 'minute', displayFormats: { minute: 'HH:mm' }, tooltipFormat: 'HH:mm' },
+        adapters: { date: { locale: customLocale } },
+        title: { display: false, text: 'Time', color: 'grey' }
+      },
+      'y-voltage': {
+        title: { display: false, text: 'Voltage (V)', color: 'grey' },
+        position: 'left',
+        ticks: { stepSize: 0.5, callback: function(value) { return value + 'V'; }, color: 'grey' },
+        afterDataLimits: function(scale) {
+          const voltages = scale.chart.data.datasets[0].data.filter(v => v !== null && !isNaN(v));
+          if (voltages.length === 0) return;
+          const dataMin = Math.min(...voltages);
+          const dataMax = Math.max(...voltages);
+          const midpoint = (dataMin + dataMax) / 2;
+          const range = dataMax - dataMin;
+          let min = range < 3 ? midpoint - 1.5 : dataMin - 0.25;
+          let max = range < 3 ? midpoint + 1.5 : dataMax + 0.25;
+          min = Math.round(min / 0.5) * 0.5;
+          max = Math.round(max / 0.5) * 0.5;
+          if (dataMin >= 10) min = 10;
+          if (max < 15) max = 15;
+          scale.options.min = min;
+          scale.options.max = max;
+        },
+        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+      },
+      'y-amps': {
+        title: { display: false, text: 'Current (A)', color: 'grey' }, // Changed display to true for consistency
+        position: 'right',
+        ticks: { 
+          stepSize: 1, // Adjusted step size for finer granularity
+          callback: function(value) { return value + 'A'; },
+          color: 'grey'
+        },
+        afterDataLimits: function(scale) {
+          const amps = scale.chart.data.datasets[1].data.filter(v => v !== null && !isNaN(v));
+          if (amps.length === 0) {
+            scale.options.min = 0;
+            scale.options.max = 5; // Default range if no data
+            return;
+          }
+          const dataMin = Math.min(...amps);
+          const dataMax = Math.max(...amps);
+          const range = dataMax - dataMin;
+          let min = 0; // Always start at 0 as requested
+          let max = range < 3 ? dataMax + 1.5 : dataMax + 0.5; // Buffer above max
+          max = Math.ceil(max / 1) * 1; // Round up to nearest integer
+          if (max < 5) max = 5; // Minimum reasonable max
+          scale.options.min = min;
+          scale.options.max = max;
+        },
+        grid: { drawOnChartArea: false }
+      }
+    },
+    plugins: { legend: { labels: { color: 'grey' } } }
+  },
+  plugins: [{
+    beforeDraw: (chart) => {
+      const ctx = chart.canvas.getContext('2d');
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.fillStyle = 'lightyellow';
+      ctx.fillRect(0, 0, chart.width, chart.height);
+      ctx.restore();
+    }
+  }]
+});
 
   // New Hourly Fuel Chart
   var ctxHourlyFuel = document.getElementById('hourlyFuelChart').getContext('2d');
@@ -807,7 +826,7 @@ tempChart = new Chart(ctx, {
       labels: [],
       datasets: [
         {
-          label: 'Gallons Used Per Hour (Completed)',
+          label: 'Gal Per HR',
           data: [],
           backgroundColor: 'rgba(255, 165, 0, 0.7)',
           borderColor: 'rgba(255, 165, 0, 1)',
@@ -865,6 +884,72 @@ tempChart = new Chart(ctx, {
       }
     }]
   });
+
+var ctxWattHour = document.getElementById('wattHourChart').getContext('2d');
+var wattHourChart = new Chart(ctxWattHour, {
+  type: 'bar',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: 'Watt-HR',
+        data: [],
+        backgroundColor: 'rgba(0, 128, 255, 0.7)',
+        borderColor: 'rgba(0, 128, 255, 1)',
+        borderWidth: 1
+      },
+      {
+        label: 'Watt-HR (In Progress)',
+        data: [],
+        backgroundColor: 'rgba(0, 128, 255, 0.3)',
+        borderColor: 'rgba(0, 128, 255, 1)',
+        borderWidth: 1
+      }
+    ]
+  },
+  options: {
+    scales: {
+      x: {
+        type: 'time',
+        time: {
+          unit: 'hour',
+          displayFormats: { hour: 'HH:00' },
+          tooltipFormat: 'MM/dd HH:00'
+        },
+        adapters: { date: { locale: customLocale } },
+        title: { display: true, text: 'Hour', color: 'grey' }
+      },
+      y: {
+        beginAtZero: true,
+        title: { display: false, text: 'Watt-Hours', color: 'grey' },
+        ticks: {
+          stepSize: 10,
+          callback: function(value) { return value.toFixed(0) + ' Wh'; },
+          color: 'grey'
+        },
+        afterDataLimits: function(scale) {
+          const completedData = scale.chart.data.datasets[0].data;
+          const currentData = scale.chart.data.datasets[1].data;
+          const allData = [...completedData, ...currentData].filter(v => v !== null && !isNaN(v));
+          if (allData.length === 0) return;
+          const max = Math.max(...allData);
+          scale.options.max = Math.ceil(max * 1.1 / 10) * 10;
+        }
+      }
+    },
+    plugins: { legend: { labels: { color: 'grey' } } }
+  },
+  plugins: [{
+    beforeDraw: (chart) => {
+      const ctx = chart.canvas.getContext('2d');
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.fillStyle = 'lightyellow';
+      ctx.fillRect(0, 0, chart.width, chart.height);
+      ctx.restore();
+    }
+  }]
+});
 
   // Slider interaction handling
   if (tempSlider) {
@@ -993,11 +1078,36 @@ tempChart = new Chart(ctx, {
             highlightQuickSetButton(data.setTemp); // Highlight based on setTemp post-adjustment
           }
 
+          // Create Date object from UTC epoch time (assuming epochtime is in seconds)
+          const utcDateTime = new Date(data.epochTime * 1000);
+
+          // Convert to client's local timezone with formatting options
+          const timeOptions = {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: true
+          };
+
+          const dateOptions = {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit'
+          };
+
+          // Get local time and date strings
+          const localTime = utcDateTime.toLocaleTimeString([], timeOptions);
+          const localDate = utcDateTime.toLocaleDateString([], dateOptions);
+
+          // Update the DOM elements
+          document.getElementById("currentTime").querySelector("span").textContent = localTime;
+          document.getElementById("currentDate").querySelector("span").textContent = localDate;
+
           document.getElementById("currentTemp").textContent = data.currentTemp.toFixed(1) + "°F";
           document.getElementById("heaterState").textContent = data.state;
           document.getElementById("runtime").textContent = data.heaterHourMeter.toFixed(2) + "Hrs";
-          document.getElementById("currentTime").querySelector("span").textContent = data.time;
-          document.getElementById("currentDate").querySelector("span").textContent = data.date;
+          //document.getElementById("currentTime").querySelector("span").textContent = data.time;
+          //document.getElementById("currentDate").querySelector("span").textContent = data.date;
           document.getElementById("currentWallTempTrigger").textContent = data.walltemptrigger.toFixed(0);
           document.getElementById("uptime").querySelector("span").textContent = formatUptime(parseInt(data.uptime));
           document.getElementById("lifetimeFuel").textContent = data.fuelConsumedLifetime.toFixed(2) + " Gal";
@@ -1033,7 +1143,7 @@ tempChart = new Chart(ctx, {
                       tempWarnElement.style.color = "red";
                       break;
                   case 1:
-                      tempWarnElement.textContent = "Wall temp > 100F.";
+                      tempWarnElement.textContent = "Wall temp > 110F.";
                       tempWarnElement.style.display = "inline-block";
                       tempWarnElement.style.color = "orange";
                       break;
@@ -1204,23 +1314,45 @@ tempChart = new Chart(ctx, {
             const currentTime = Date.now();
             const labels = hourlyTimestamps.map(ts => new Date(currentTime - (ts * 1000)));
 
-            // Update completed hours
+            // Set completed hours
             hourlyFuelChart.data.labels = labels;
             hourlyFuelChart.data.datasets[0].data = hourlyFuel;
 
-            // Add in-progress hour (current accumulator) as a separate bar
-            const currentHourStart = new Date(Math.floor(Date.now() / 3600000) * 3600000);
+            // Always add the current hour, even if accumulator is 0
+            const currentHourStart = new Date(Math.floor(currentTime / 3600000) * 3600000);
             currentHourStart.setMinutes(0, 0, 0);
-
-            if (accumulator > 0) {
-              hourlyFuelChart.data.labels = [...labels, currentHourStart];
-              hourlyFuelChart.data.datasets[1].data = [...new Array(hourlyFuel.length).fill(null), accumulator];
-            } else {
-              hourlyFuelChart.data.datasets[1].data = [];
-            }
+            hourlyFuelChart.data.labels = [...labels, currentHourStart];
+            hourlyFuelChart.data.datasets[1].data = [...new Array(hourlyFuel.length).fill(null), accumulator];
 
             hourlyFuelChart.update();
           }
+
+        // Update watt-hour chart
+        if (data.wattHourHistory) {
+          const wattHourData = JSON.parse(data.wattHourHistory);
+          const hourlyWattHours = wattHourData.wattHours || [];
+          const wattHourTimestamps = wattHourData.wattHourTimestamps || [];
+          const wattHourAccumulator = wattHourData.wattHourAccumulator || 0;
+
+          const labels = wattHourTimestamps.map(ts => new Date(currentTime - (ts * 1000))); // Relative timestamps
+
+          wattHourChart.data.labels = labels;
+          wattHourChart.data.datasets[0].data = hourlyWattHours;
+
+          const currentHourStart = new Date(Math.floor(currentTime / 3600000) * 3600000);
+          currentHourStart.setMinutes(0, 0, 0);
+
+          if (wattHourAccumulator > 0) {
+            wattHourChart.data.labels = [...labels, currentHourStart];
+            wattHourChart.data.datasets[1].data = [...new Array(hourlyWattHours.length).fill(null), wattHourAccumulator];
+          } else {
+            wattHourChart.data.datasets[1].data = [];
+          }
+
+          wattHourChart.update();
+        }
+        // Display 24-hour average watt-hours
+        document.getElementById("avgWattHours24h").textContent = data.avgWattHours24h.toFixed(2) + " Wh/Hr";
 
             // Update tempChart with sparsified datasets
             if (tempChart) {
@@ -1272,28 +1404,37 @@ tempChart = new Chart(ctx, {
               tempChart.update();
             }
 
-            if (data.voltageHistory) {
-              var voltageHistory = JSON.parse(data.voltageHistory);
-              // Filter the voltage history using the same filterDuplicates function
-              const filteredVoltage = filterDuplicates(voltageHistory.voltageHistory, voltageHistory.timestamps);
+        // Update voltage chart (including amps)
+        if (data.voltageHistory || data.ampsHistory) {
+          const voltageHistory = data.voltageHistory ? JSON.parse(data.voltageHistory) : { voltageHistory: [], timestamps: [] };
+          const ampsHistory = data.ampsHistory ? JSON.parse(data.ampsHistory) : { ampsHistory: [], timestamps: [] };
+          // Round each value in ampsHistory to the nearest tenth
+          ampsHistory.ampsHistory = ampsHistory.ampsHistory.map(value => Math.round(value * 10) / 10);
 
-              // Align the filtered voltage data to the timestamps
-              const alignData = (filteredValues, filteredTimestamps, masterTimestamps) => {
-                const data = new Array(masterTimestamps.length).fill(null);
-                filteredTimestamps.forEach((timestamp, index) => {
-                  const idx = masterTimestamps.indexOf(timestamp);
-                  if (idx !== -1) data[idx] = filteredValues[index];
-                });
-                return data;
-              };
+          // Combine timestamps from both voltage and amps to create a master timeline
+          const allTimestamps = [...new Set([...voltageHistory.timestamps, ...ampsHistory.timestamps])].sort((a, b) => a - b);
+          voltageChart.data.labels = allTimestamps.map(t => new Date(currentTime - (t * 1000))); // Relative timestamps
 
-              // Use the voltageHistory timestamps as the master timeline for this chart
-              voltageChart.data.labels = voltageHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
-              voltageChart.data.datasets[0].data = alignData(filteredVoltage.values, filteredVoltage.timestamps, voltageHistory.timestamps);
+          // Filter duplicates
+          const filteredVoltage = filterDuplicates(voltageHistory.voltageHistory, voltageHistory.timestamps);
+          const filteredAmps = filterDuplicates(ampsHistory.ampsHistory , ampsHistory.timestamps);
 
-              // Scaling is now handled by the chart's afterDataLimits callback
-              voltageChart.update();
-            }
+          // Align data function
+          const alignData = (filteredValues, filteredTimestamps, masterTimestamps) => {
+            const data = new Array(masterTimestamps.length).fill(null);
+            filteredTimestamps.forEach((timestamp, index) => {
+              const idx = masterTimestamps.indexOf(timestamp);
+              if (idx !== -1) data[idx] = filteredValues[index];
+            });
+            return data;
+          };
+
+          // Update datasets
+          voltageChart.data.datasets[0].data = alignData(filteredVoltage.values, filteredVoltage.timestamps, allTimestamps);
+          voltageChart.data.datasets[1].data = alignData(filteredAmps.values, filteredAmps.timestamps, allTimestamps);
+
+          voltageChart.update();
+        }
           
         }
       } catch (error) {

@@ -520,6 +520,16 @@
     #delete {
       text-align: center;
     }
+    #wattchart {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: darkred;
+      padding: 3px 0px 3px 0px;
+    }
+    #manualZipInput {
+      background: darkred;
+    }
   </style>
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -628,17 +638,21 @@
     <input type="number" id="tankSizeInput" min="0" step="0.1" maxlength=4 placeholder="Size in Gal"><button id="setTankButton"onclick="setTankSize()">Set Tank Size</button>
     
   </div>
+  <canvas id="tempChart" width="400" height="200"></canvas>
   <div style="text-align: center;" class="weather">
     <div id="manualZipInput" style="display: none;">
       <p id="zipErrorMessage" style="color: red; display: none; background: black;"></p>
-      Current ZIP Code: <span id="currentZipCode"></span>
+      Weather Zipcode: <span id="currentZipCode"></span>
       <input type="text" id="zipCodeInput" minlength="5" maxlength="5" placeholder="Enter 5-digit ZIP">
       <button id="setZipButton">Set ZIP Code</button> <!-- No onclick -->
     </div>
   </div>
-  <canvas id="tempChart" width="400" height="200"></canvas>
   <canvas id="hourlyFuelChart" width="400" height="150"></canvas>
   <canvas id="voltageChart" width="400" height="150"></canvas>
+  <div id="wattchart"><br>
+  <label>24H AVG: <span id="avgWattHours24h">0.00 Wh/Hr</span></label>
+  </div>
+  <canvas id="wattHourChart" width="400" height="200"></canvas>
   <div class="file-area">
     <h2>File Upload</h2>
     <form method="POST" action="/upload" enctype="multipart/form-data">
@@ -661,9 +675,10 @@
     </table>
   </div>
 
-<script src="/heat.js"></script>
 <script src="/chart.js"></script>
+<script src="/chartjs-adapter-date-fns.js"></script>
 <script src="/chartjs-adapter-date.js"></script>
+<script src="/heat.js"></script>
 <script src="/index.js"></script>
 </body>
 </html>
