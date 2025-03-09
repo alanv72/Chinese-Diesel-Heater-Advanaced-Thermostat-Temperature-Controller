@@ -11,27 +11,63 @@
 #include <Preferences.h>
 #include <FS.h>
 #include <SPIFFS.h>
+#include <math.h>  // For NAN
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
 #include <index_html.h>
 #include "ESP32SoftwareSerial.h"
 #include <OneWire.h>           // Add OneWire library for DS18B20
 #include <DallasTemperature.h> // Add DallasTemperature library for DS18B20
 
-
-#define HEATER_PIN 32
+#define HEATER_PIN 4 //Need to change to 12 eventually. Possible issues with BLE at 32.
 #define LED_BUILTIN 2
 // Define the pins for increase and decrease temperature actions
 const int increaseTempPin = 25;
 const int decreaseTempPin = 26;
-const unsigned long buttonPressDuration = 250;  // milliseconds for button press
+const unsigned long buttonPressDuration = 125;  // milliseconds for button press
 unsigned long lastAdjustmentTime = 0;
-const unsigned long adjustmentInterval = 1000;  // 1 second interval between adjustments
+const unsigned long adjustmentInterval = 200;  // interval between adjustments
 
-// New pin definitions for 5V relays and DY-HFT sensor
-#define DUCT_FAN_RELAY_PIN 33  // Pin for duct fan relay
-#define WALL_FAN_RELAY_PIN 27  // Pin for wall fan relay
+// New pin definitions for MOSFETS and DY-HFT sensor
+#define DUCT_FAN_PWM_PIN 27    // GPIO for duct fan PWM (replacing relay)
+#define WALL_FAN_PWM_PIN 33    // GPIO for wall fan PWM (replacing relay)
+#define DUCT_FAN_PWM_CHANNEL 0 // PWM channel for duct fan
+#define WALL_FAN_PWM_CHANNEL 1 // PWM channel for wall fan
+#define PWM_FREQ 1000          // PWM frequency (1kHz)
+#define PWM_RESOLUTION 10      // 10-bit resolution (0-1023)
 #define DS18B20_SENSOR_PIN 14   // Pin for DY-HFT sensor
 
+// Voltage thresholds and targets
+const float NOMINAL_VOLTAGE = 13.5; // Fully charged battery baseline
+const float MIN_SUPPLY_VOLTAGE = 11.0; // Minimum supply voltage before fans shut off
+const float REC_SUPPLY_VOLTAGE = 11.5; // Recovery supply voltage once the battery charged to 11.5v
+const float MAX_SUPPLY_VOLTAGE = 14.3; // Maximum supply voltage while charging
+//const float MOSFET_DROP = 0.3;      // IRL540N voltage drop at ~3A load
+const float MIN_FAN_VOLTAGE = 10.5;  // Minimum fan voltage for "Low"
+const float MED_FAN_VOLTAGE = 11.5;  // Medium fan voltage
+const float HIGH_FAN_VOLTAGE = 12.5;// High fan voltage (updated to 12V as requested)
+// Fan speed levels (nominal voltages without MOSFET drop)
+const int FAN_OFF = 0;           // 0% duty cycle (0V)
+const int PWM_MAX = 1023;        // Max PWM value (10-bit resolution)
+const float PWM_PER_VOLT = PWM_MAX / NOMINAL_VOLTAGE; // ~75.777 at 13.5V
+
+// Fan states
+float manualDuctFanVoltage = 0.0;  // Target voltage for duct fan in manual mode
+float manualWallFanVoltage = 0.0;  // Target voltage for wall fan in manual mode
+int manualDuctFanSpeed = 0;        // Current PWM for duct fan (updated dynamically)
+int manualWallFanSpeed = 0;        // Current PWM for wall fan (updated dynamically)
+int ductfan = 0; // 0-Off, 1-Low, 2-Med, 3-High
+int wallfan = 0; // 0-Off, 1-Low, 2-Med, 3-High
+bool ductFanManualControl = false; // False = automatic, True = manual
+bool wallFanManualControl = false; // False = automatic, True = manual
+unsigned long ductfandelay = 0;
+unsigned long wallfandelay = 0;
+
+// Cache for efficiency
+int cachedFanLow = 0, cachedFanMed = 0, cachedFanHigh = 0;
+
+// Debug flag (set to 0 in production)
+const bool DEBUG = 0;
 
 ESP32SoftwareSerial sOne(HEATER_PIN);
 
@@ -52,11 +88,29 @@ unsigned long wifiConnectStartMillis = 0;
 bool tryingPrimary = true;
 bool connectedToAnyNetwork = false;
 unsigned long bootTime = millis();
+unsigned long lastMillis = 0;
+unsigned long overflowCount = 0;
+unsigned long long uptime = 0; // Changed to unsigned long long
 unsigned long lastMemoryCheckTime = 0;
 
 // NTP Client
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org",-21600, 10800000);
+
+// Weather API settings
+const char* WEATHER_API_KEY = "aeb9ccaba969c927fc2b8ce501da53a8"; // Replace with your API key
+String ZIP_CODE = "64856"; // Default value, loaded from Preferences
+const char*COUNTRY_CODE = "us"; // Adjust if not in the U.S.
+const char* WEATHER_API_HOST = "api.openweathermap.org";
+//const String WEATHER_API_ENDPOINT = "/data/2.5/weather?zip=" + ZIP_CODE + "," + String(COUNTRY_CODE) + "&appid=" + String(WEATHER_API_KEY) + "&units=imperial"; // Fahrenheit
+float outsideTempF = NAN; // Variable to store outside temperature in Fahrenheit
+float outsideHumidity = NAN; // Variable to store outside humidity percentage
+unsigned long lastWeatherUpdate = 0;
+const unsigned long WEATHER_UPDATE_INTERVAL = 890000;
+#define OUTSIDE_TEMP_HISTORY_SIZE 720 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
+float outsideTempHistory[OUTSIDE_TEMP_HISTORY_SIZE];
+unsigned long outsideTempTimestamps[OUTSIDE_TEMP_HISTORY_SIZE];
+int outsideTempIndex = 0;
 
 // Your BLE name or hostname for mDNS
 String currentBLEName = "RV-DHeat";
@@ -74,8 +128,6 @@ float totalTankTime = 0.0;                  // Fuel consumption since last tank 
 const float ML_TO_GALLON = 0.000264172;       // Conversion factor from ml to gallons
 const float PUMP_FLOW_PER_1000_PUMPS = 22.0;  // ml per 1000 pumps
 float pumpHz = 0.0;                           // Real-time pump frequency
-// Global variable for uptime
-unsigned long uptime = 0;
 float avgGallonPerHour = 0.0;    // Average gallons per hour
 float currentGPH = 0.0;
 float rollingAvgGPH = 0.0; // New variable for rolling average GPH
@@ -87,12 +139,11 @@ bool frostModeEnabled = false;
 float glowPlugHours = 0.0;  // Hours of glow plug operation
 float glowPlugCurrent_Amps = 0.0;
 bool voltagegood = true;
-unsigned long ductfandelay = 0;
-unsigned long wallfandelay = 0;
-bool ductfan = 0;
-bool wallfan = 0;
 bool cshut = 0;
 String message = "";
+String saveError = ""; // Global variable to store errors, add this outside any function
+unsigned long lastSerialUpdate = 0;
+
 #define TEMP_HISTORY_SIZE 720 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
 #define INTERVAL_BETWEEN_SAVES 300000
 float tempHistory[TEMP_HISTORY_SIZE];
@@ -102,24 +153,36 @@ int tempIndex = 0;
 float voltageHistory[VOLTAGE_HISTORY_SIZE];
 unsigned long voltageTimestamps[VOLTAGE_HISTORY_SIZE];
 int voltageIndex = 0;
-// #define SAMPLE_SIZE 480 // 8 hours * 60 samples/hour
-// float gphSamples[SAMPLE_SIZE] = {0};
-// unsigned long sampleTimestamps[SAMPLE_SIZE] = {0};
-// int sampleIndex = 0;
-// unsigned long lastSampleTime = 0;
+#define PUMP_HZ_HISTORY_SIZE 720 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
+float pumpHzHistory[PUMP_HZ_HISTORY_SIZE];
+unsigned long pumpHzTimestamps[PUMP_HZ_HISTORY_SIZE];
+int pumpHzIndex = 0;
+float pumpHzAccumulator = 0.0; // Accumulates pump Hz readings
+int pumpHzSampleCount = 0;     // Counts number of readings in the interval
+int currentFileIndex = 0;
+#define HSAVE_INTERVAL 900000     // 15 minutes in ms
+#define HISTORY_FILES 8          // Rotate between 8 files
+#define BLOCK_DURATION (6 * 3600)  // 6 hours in seconds
+#define HOURLY_FUEL_SIZE 24
+float hourlyFuelGallons[HOURLY_FUEL_SIZE];
+unsigned long hourlyFuelTimestamps[HOURLY_FUEL_SIZE];
+int hourlyFuelIndex = 0;
+float hourlyFuelAccumulator = 0.0;
+unsigned long lastHourlyUpdate = 0;
+const unsigned long HOUR_IN_MS = 3600000UL;
 
 unsigned long flasherLastTime;
 unsigned long rxLastTime;
 unsigned long writerLastTime;
 String heaterState[] = { "Off/Stand-by", "Starting", "Pre-Heat", "Retry Start", "Ramping Up", "Heating", "Stop Received", "Shutting Down", "Cooldown"};
 int heaterStateNum = 0;
-String heaterError[] = {
+const char* heaterError[] = {
   "No Error",                     // 0 - No Error (0 - 1 = -1, but we treat 0 as no error)
-  "No Error, running",        // 1 - No Error, but started (1 - 1 = 0)
-  "Voltage too low",              // 2 - Voltage too low (2 - 1 = 1)
-  "Voltage too high",             // 3 - Voltage too high (3 - 1 = 2)
+  "Running w/o Error",        // 1 - No Error, but started (1 - 1 = 0)
+  "Voltage too high",              // 2 - Voltage too low (2 - 1 = 1)
+  "Voltage too low",             // 3 - Voltage too high (3 - 1 = 2)
   "Ignition plug failure",        // 4 - Ignition plug failure (4 - 1 = 3)
-  "Pump Failure – over current",  // 5 - Pump Failure (5 - 1 = 4)
+  "Pump Failure over current",  // 5 - Pump Failure (5 - 1 = 4)
   "Overheating",                  // 6 - Too hot (6 - 1 = 5)
   "Motor Failure",                // 7 - Motor Failure (7 - 1 = 6)
   "Comms lost",       // 8 - Serial connection lost (8 - 1 = 7)
@@ -130,6 +193,7 @@ String heaterError[] = {
 int heaterErrorNum = 0;
 int heaterinternalTemp = 0;
 unsigned long lastSendTime = 0;
+int tempwarn = 0; // 0 = no warning, 1 = warning (>100°F), 2 = critical (>120°F)
 
 #define FRAME_SIZE 24           // Frames are 24 bytes
 #define COMBINED_FRAME_SIZE 48  // 2 frames combined
@@ -145,7 +209,7 @@ uint16_t calculateCRC16(const uint8_t* data, size_t length);
 void processFrame(uint8_t* frame);
 
 // Default enable thermostat mode at start up
-int controlEnable = 1;
+int controlEnable = 0;
 
 // set the currentTemperature default to something outside the usual range
 float currentTemperature = -200.0f;
@@ -169,6 +233,46 @@ float fahrenheitToCelsius(float fahrenheit) {
   return (fahrenheit - 32) * 5.0 / 9.0;
 }
 
+// Dynamically adjust PWM as voltage sags with battery drain, ensuring minimum 10V output
+inline int calculateAdjustedPWM(float targetVoltage, float supplyVoltage) {
+  const float REF_VOLTAGE = 13.1;    // Reference supply voltage
+  const float MIN_VOLTAGE = 10.0;    // Minimum operational voltage
+  const float REF_10V = 10.0;
+  const float REF_12V = 12.0;
+  const float DEFAULT_SUPPLY = 12.0; // Default if supplyVoltage invalid
+  const float REF_PWM_10V = 792.0;   // PWM for 10V at 13.1V (10/13.1 * 1023)
+  const float REF_PWM_12V = 952.0;   // PWM for 12V at 13.1V
+
+  // Validate supply voltage
+  float validatedSupply = supplyVoltage;
+  if (supplyVoltage <= 5.0 || supplyVoltage > 15.0 || supplyVoltage != supplyVoltage) {
+    validatedSupply = DEFAULT_SUPPLY;
+  }
+
+  // Handle 0V explicitly as off
+  if (targetVoltage == 0.0) {
+    return 0; // Return 0 PWM for off state
+  }
+
+  // Enforce minimum operational voltage of 10V for non-zero targets
+  float adjustedTarget = max(targetVoltage, MIN_VOLTAGE);
+
+  float basePWM;
+  if (adjustedTarget <= REF_10V) {
+    basePWM = REF_PWM_10V;
+  } else if (adjustedTarget <= REF_12V) {
+    float ratio = (adjustedTarget - REF_10V) / (REF_12V - REF_10V);
+    basePWM = REF_PWM_10V + ratio * (REF_PWM_12V - REF_PWM_10V);
+  } else {
+    basePWM = (adjustedTarget / REF_VOLTAGE) * PWM_MAX;
+  }
+
+  float scaleFactor = validatedSupply / REF_VOLTAGE;
+  int adjustedPWM = (int)(basePWM / scaleFactor);
+  
+  return constrain(adjustedPWM, 0, PWM_MAX);
+}
+
 String getFormattedDate() {
   time_t rawtime = timeClient.getEpochTime();
   struct tm* ti;
@@ -189,7 +293,7 @@ void connectToWiFi() {
   WiFi.begin(primarySSID, primaryPassword);
   Serial.println("Connecting to primary WiFi...");
   wifiConnectStartMillis = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - wifiConnectStartMillis < PRIMARY_CONNECT_TIME) {
+  while (WiFi.status() != WL_CONNECTED && (unsigned long)(millis() - wifiConnectStartMillis) < PRIMARY_CONNECT_TIME) {
     delay(1000);
     Serial.print(".");
   }
@@ -198,7 +302,7 @@ void connectToWiFi() {
     Serial.println("\nPrimary WiFi connection failed, trying fallback...");
     WiFi.begin(fallbackSSID, fallbackPassword);
     wifiConnectStartMillis = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - wifiConnectStartMillis < FALLBACK_CONNECT_TIME) {
+    while (WiFi.status() != WL_CONNECTED && (unsigned long)(millis() - wifiConnectStartMillis) < FALLBACK_CONNECT_TIME) {
       delay(1000);
       Serial.print(".");
     }
@@ -229,6 +333,45 @@ void checkWiFiConnection() {
   }
 }
 
+String getWeatherApiEndpoint() {
+  return "/data/2.5/weather?zip=" + ZIP_CODE + "," + String(COUNTRY_CODE) + "&appid=" + String(WEATHER_API_KEY) + "&units=imperial";
+}
+
+void updateWeatherData() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected, skipping weather update");
+    return;
+  }
+
+  HTTPClient http;
+  String url = "http://" + String(WEATHER_API_HOST) + getWeatherApiEndpoint();
+  http.begin(url);
+  int httpCode = http.GET();
+
+  if (httpCode == HTTP_CODE_OK) {
+    String payload = http.getString();
+    DynamicJsonDocument doc(2048);
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (!error) {
+      outsideTempF = doc["main"]["temp"].as<float>();
+      outsideHumidity = doc["main"]["humidity"].as<float>();
+      Serial.printf("Weather updated for ZIP %s: Temp=%.1f°F, Humidity=%.1f%%\n", ZIP_CODE.c_str(), outsideTempF, outsideHumidity);
+    } else {
+      Serial.println("Failed to parse weather JSON: " + String(error.c_str()));
+      outsideTempF = NAN;
+      outsideHumidity = NAN;
+    }
+  } else {
+    Serial.println("Weather API request failed, HTTP code: " + String(httpCode));
+    outsideTempF = NAN;
+    outsideHumidity = NAN;
+  }
+
+  http.end();
+  lastWeatherUpdate = millis();
+}
+
 void sendData(const uint8_t* data, size_t length) {
   uint8_t dataToSend[length];
   memcpy(dataToSend, data, length - 2);
@@ -236,12 +379,12 @@ void sendData(const uint8_t* data, size_t length) {
   dataToSend[length - 2] = (crc >> 8) & 0xFF;
   dataToSend[length - 1] = crc & 0xFF;
 
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < 2; ++i) {
     for (size_t i = 0; i < length; i++) {
       sOne.write(dataToSend[i]);
     }
-    Serial.printf("  Sent %d bytes to heater (Attempt %d)\n", length, i + 1);
-    delay(400);
+   if (DEBUG) Serial.printf("  Sent %d bytes to heater (Attempt %d)\n", length, i + 1);
+    delay(20);
   }
 }
 
@@ -252,28 +395,47 @@ void handleUpload(AsyncWebServerRequest* request, String filename, size_t index,
 
   if (!index) {
     logmessage = "Upload Start: " + String(filename);
-    request->_tempFile = SPIFFS.open("/" + filename, "w");
     Serial.println(logmessage);
+    Serial.println("SPIFFS Free: " + String(SPIFFS.totalBytes() - SPIFFS.usedBytes()));
+    request->_tempFile = SPIFFS.open("/" + filename, "w");
+    if (!request->_tempFile) {
+      Serial.println("Failed to open file: " + filename);
+      request->send(500, "text/plain", "Failed to open file");
+      return;
+    }
   }
 
   if (len) {
-    request->_tempFile.write(data, len);
-    logmessage = "Writing file: " + String(filename) + " index=" + String(index) + " len=" + String(len);
+    size_t written = request->_tempFile.write(data, len);
+    if (written != len) {
+      Serial.println("Write failed: wrote " + String(written) + " of " + String(len) + " bytes");
+      request->_tempFile.close();
+      request->send(500, "text/plain", "Failed to write file");
+      return;
+    }
+    request->_tempFile.flush(); // Ensure data is written
+    logmessage = "Writing file: " + String(filename) + " index=" + String(index) + " len=" + String(len) + " written=" + String(written);
     Serial.println(logmessage);
   }
 
   if (final) {
-    logmessage = "Upload Complete: " + String(filename) + ",size: " + String(index + len);
+    logmessage = "Upload Complete: " + String(filename) + ", total size: " + String(index + len);
     request->_tempFile.close();
+    File file = SPIFFS.open("/" + filename, "r");
+    if (file) {
+      Serial.println("Final file size on disk: " + String(file.size()));
+      file.close();
+    }
     Serial.println(logmessage);
+    request->send(200, "text/plain", "Upload successful");
     request->redirect("/");
   }
 }
 
 void setup() {
-  esp_task_wdt_deinit();  //wdt is initialized by default. disable and reconfig
+  esp_task_wdt_deinit();  // wdt is initialized by default. disable and reconfig
   esp_task_wdt_config_t wdt_config = {
-    .timeout_ms = 120000,                             // 2m timeout
+    .timeout_ms = 30000,                             // 30s timeout
     .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,  // All cores
     .trigger_panic = false                            // Do not trigger panic on timeout, just warn
   };
@@ -290,40 +452,139 @@ void setup() {
     voltageTimestamps[i] = 0;
   }
 
+  for (int i = 0; i < PUMP_HZ_HISTORY_SIZE; i++) {
+    pumpHzHistory[i] = -1.0; // Initialize with an invalid value (e.g., -1 Hz)
+    pumpHzTimestamps[i] = 0;
+  }
+  pumpHzAccumulator = 0.0;
+  pumpHzSampleCount = 0;
+
+  for (int i = 0; i < OUTSIDE_TEMP_HISTORY_SIZE; i++) {
+    outsideTempHistory[i] = NAN; // Initialize with invalid value
+    outsideTempTimestamps[i] = 0;
+  }
+
+  // Initialize hourly fuel data
+  for (int i = 0; i < HOURLY_FUEL_SIZE; i++) {
+    hourlyFuelGallons[i] = 0.0;
+    hourlyFuelTimestamps[i] = 0;
+  }
+  hourlyFuelAccumulator = 0.0;
+  lastHourlyUpdate = millis();
+
   pinMode(increaseTempPin, OUTPUT);
   pinMode(decreaseTempPin, OUTPUT);
   // Ensure pins are not connected to ground at start
   digitalWrite(increaseTempPin, HIGH);
   digitalWrite(decreaseTempPin, HIGH);
+  // Ensure fan pins are off at start. ie MOSFET off
+  //digitalWrite(DUCT_FAN_PWM_PIN, LOW);
+  digitalWrite(WALL_FAN_PWM_PIN, LOW);
 
-  // Setup new pins for relays and DS18B20 sensor
-  pinMode(DUCT_FAN_RELAY_PIN, OUTPUT);
-  pinMode(WALL_FAN_RELAY_PIN, OUTPUT);
-  digitalWrite(DUCT_FAN_RELAY_PIN, LOW); // Initially off (assuming LOW turns relay off)
-  digitalWrite(WALL_FAN_RELAY_PIN, LOW); // Initially off
+  // Configure PWM for duct fan (Version 3.x API)
+  ledcAttachChannel(DUCT_FAN_PWM_PIN, PWM_FREQ, PWM_RESOLUTION, DUCT_FAN_PWM_CHANNEL);
+  ledcWrite(DUCT_FAN_PWM_PIN, FAN_OFF); // Start with fan off
+
+  // Configure PWM for wall fan (Version 3.x API)
+  ledcAttachChannel(WALL_FAN_PWM_PIN, PWM_FREQ, PWM_RESOLUTION, WALL_FAN_PWM_CHANNEL);
+  ledcWrite(WALL_FAN_PWM_PIN, FAN_OFF); // Start with fan off
+
   sensors.begin();
   pinMode(HEATER_PIN, INPUT);
   sOne.begin(25000);
 
   Serial.begin(115200);
   Serial.println("Heater Controller Starting...");
-
-  flasherLastTime = millis();
-  rxLastTime = millis();
-  writerLastTime = millis();
+  
+  bootTime = millis();
+  lastMillis = bootTime;
+  flasherLastTime = millis(); // No change needed (initialization)
+  rxLastTime = millis();     // No change needed (initialization)
+  writerLastTime = millis(); // No change needed (initialization)
   pinMode(LED_BUILTIN, OUTPUT);
 
   connectToWiFi();
-  timeClient.begin();
+  timeClient.update();
+  delay(1000); // Delay for NTP sync
+  updateWeatherData();
+
+  preferences.begin("heater", false);
+  ZIP_CODE = preferences.getString("zipcode", "64856");
+  currentFileIndex = preferences.getInt("currentFileIndex", 0);
+  heaterRunTime = preferences.getULong("runtime", 0);
+  fuelConsumption = preferences.getFloat("fuelConsumption", 0);
+  tankRuntime = preferences.getFloat("tankRuntime", 0);
+  tankSizeGallons = preferences.getFloat("tankSize", 0);
+  tankConsumption = preferences.getFloat("tankConsumption", 0);
+  avgGallonPerHour = preferences.getFloat("avgGallonPerHour", 0.0);
+  totalRuntime = preferences.getULong("totalRuntime", 0);
+  glowPlugHours = preferences.getFloat("glowPlugHours", 0.0);
+  frostModeEnabled = preferences.getBool("frostMode", false);
+  walltemptrigger = preferences.getFloat("walltemptrigger", 0);
+  totalTankTime = preferences.getFloat("totalTankTime", 0.0);
+  rollingAvgGPH = preferences.getFloat("rollingAvgGPH", 0.0);
+  ductFanManualControl = preferences.getBool("ductFanManual", false);
+  wallFanManualControl = preferences.getBool("wallFanManual", false);
+  if (ductFanManualControl) {
+    manualDuctFanSpeed = preferences.getInt("manualDuctSpeed", 0);
+    manualDuctFanVoltage = preferences.getFloat("manualDuctVoltage", 0.0); // Load target voltage
+    if (manualDuctFanVoltage == 0 && manualDuctFanSpeed > 0) {
+      manualDuctFanVoltage = (manualDuctFanSpeed * NOMINAL_VOLTAGE) / PWM_MAX; // Backward compatibility
+    }
+  }
+  if (wallFanManualControl) {
+    manualWallFanSpeed = preferences.getInt("manualWallSpeed", 0);
+    manualWallFanVoltage = preferences.getFloat("manualWallVoltage", 0.0); // Load target voltage
+    if (manualWallFanVoltage == 0 && manualWallFanSpeed > 0) {
+      manualWallFanVoltage = (manualWallFanSpeed * NOMINAL_VOLTAGE) / PWM_MAX; // Backward compatibility
+    }
+  }
 
   if (!SPIFFS.begin(true)) {
-    Serial.println("An Error has occurred while mounting SPIFFS");
+    Serial.println("SPIFFS mount failed");
     return;
   }
-  Serial.println("SPIFFS mounted successfully");
+  Serial.println("SPIFFS mounted");
+
+  // Remove invalid history files
+  // for (int i = 0; i < HISTORY_FILES; i++) {
+  //   String filename = "/history" + String(i) + ".json.hs";
+  //   if (SPIFFS.exists(filename)) {
+  //     File file = SPIFFS.open(filename, FILE_READ);
+  //     size_t size = file.size();
+  //     file.close();
+  //     if (size < 20) {
+  //       SPIFFS.remove(filename);
+  //       Serial.println("Removed invalid " + filename + " (" + String(size) + " bytes)");
+  //     }
+  //   }
+  //}
+
+  Serial.println("Loaded currentFileIndex: " + String(currentFileIndex));
+  printMemoryStats();
+  if (!loadHistoryFromSPIFFS()) {
+    Serial.println("No history files or load failed, initializing defaults");
+    for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
+      tempHistory[i] = -200.0;
+      tempTimestamps[i] = 0;
+      voltageHistory[i] = -1.0;
+      voltageTimestamps[i] = 0;
+    }
+  } else {
+    Serial.println("History loaded successfully");
+  }
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, "/index_html", "text/html");
+  });
+
+  server.on("^.+\.js$", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String path = request->url();
+    if (SPIFFS.exists(path)) {
+      request->send(SPIFFS, path, "application/javascript");
+    } else {
+      request->send(404, "text/plain", "File not found");
+    }
   });
 
   server.on("/fallback", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -373,15 +634,80 @@ void setup() {
 
     // Flag that this change was initiated by the web interface
     temperatureChangeByWeb = true;
-    controlEnable = 1;
+    // controlEnable = 1;
     request->send(200, "text/plain", "New target temperature set.");
   });
 
+  // Updated server-side handler
+  server.on("/setFanSpeed", HTTP_POST, [](AsyncWebServerRequest* request) {
+    auto setFanSpeed = [&](const char* arg, bool manualControl, float& targetVoltage, int& fanSpeed, int pin) {
+      if (request->hasArg(arg) && manualControl) {
+        float percent = request->arg(arg).toFloat();
+        if (percent < 0 || percent > 100) return;
+
+        float validatedSupply = (supplyVoltage <= 5.0 || supplyVoltage > 15.0 || isnan(supplyVoltage)) ? 12.0 : supplyVoltage;
+        if (strcmp(arg, "ductSpeed") == 0) {
+          float voltageRange = validatedSupply - 10.0;
+          targetVoltage = (percent == 0) ? 0.0 : 10.0 + (percent / 100.0) * voltageRange;
+          fanSpeed = (targetVoltage < 10.0) ? 0 : calculateAdjustedPWM(targetVoltage, validatedSupply);
+        } else if (strcmp(arg, "wallSpeed") == 0) {
+          float voltageRange = validatedSupply - 6.7; // 12.5 - 7 = 5.5V
+          targetVoltage = (percent == 0) ? 0.0 : 6.7 + (percent / 100.0) * voltageRange;
+          fanSpeed = calculateAdjustedPWM(targetVoltage, validatedSupply);
+        }
+        ledcWrite(pin, fanSpeed);
+        if (strcmp(arg, "ductSpeed") == 0) {
+          preferences.putFloat("manualDuctVoltage", targetVoltage);
+          preferences.putInt("manualDuctSpeed", fanSpeed);
+        } else {
+          preferences.putFloat("manualWallVoltage", targetVoltage);
+          preferences.putInt("manualWallSpeed", fanSpeed);
+        }
+      }
+    };
+
+    setFanSpeed("ductSpeed", ductFanManualControl, manualDuctFanVoltage, manualDuctFanSpeed, DUCT_FAN_PWM_PIN);
+    setFanSpeed("wallSpeed", wallFanManualControl, manualWallFanVoltage, manualWallFanSpeed, WALL_FAN_PWM_PIN);
+    request->send(200, "text/plain", "Fan speed updated");
+  });
+
+  server.on("/setFanControlMode", HTTP_POST, [](AsyncWebServerRequest* request) {
+    if (request->hasArg("fan") && request->hasArg("mode")) {
+      String fan = request->arg("fan");
+      String mode = request->arg("mode");
+      if (fan == "duct") {
+        ductFanManualControl = (mode == "manual");
+        preferences.putBool("ductFanManual", ductFanManualControl);
+        if (!ductFanManualControl) {
+          manualDuctFanSpeed = 0; // Clear manual speed, let auto mode take over
+          manualDuctFanVoltage = 0.0; // Clear target voltage as well
+          ductfan = 0; // Reset auto state to Off
+          preferences.putInt("manualDuctSpeed", 0);
+          preferences.putFloat("manualDuctVoltage", 0.0);
+        }
+      } else if (fan == "wall") {
+        wallFanManualControl = (mode == "manual");
+        preferences.putBool("wallFanManual", wallFanManualControl);
+        if (!wallFanManualControl) {
+          manualWallFanSpeed = 0; // Clear manual speed, let auto mode take over
+          manualWallFanVoltage = 0.0; // Clear target voltage as well
+          wallfan = 0; // Reset auto state to Off
+          preferences.putInt("manualWallSpeed", 0);
+          preferences.putFloat("manualWallVoltage", 0.0);
+        }
+      }
+      request->send(200, "text/plain", "Fan control mode set to " + mode + " for " + fan);
+    } else {
+      request->send(400, "text/plain", "Fan or mode not specified");
+    }
+  });
+
   server.on(
-    "/upload", HTTP_POST, [](AsyncWebServerRequest* request) {
-      request->send(200);
-    },
-    handleUpload);
+    "/upload",
+    HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, // Empty initial handler
+    handleUpload
+  );
 
   server.on("/events", HTTP_GET, [](AsyncWebServerRequest *request){
     AsyncWebServerResponse *response = request->beginResponse(200, "text/event-stream", "");
@@ -414,24 +740,45 @@ void setup() {
     request->send(200, "text/plain", "Frost Mode updated");
   });
 
-  server.on("/listfiles", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/listfiles", HTTP_GET, [](AsyncWebServerRequest *request) {
+    DynamicJsonDocument doc(1024);
+    JsonArray files = doc.createNestedArray("files");
     File root = SPIFFS.open("/");
     File file = root.openNextFile();
-    String fileListJSON = "{\"files\":[";
-    bool first = true;
-
     while (file) {
-      if (!first) {
-        fileListJSON += ",";
-      } else {
-        first = false;
-      }
-      fileListJSON += "{\"name\":\"" + String(file.name()) + "\",\"size\":" + String(file.size()) + "}";
+      JsonObject fileObj = files.createNestedObject();
+      fileObj["name"] = String(file.name());
+      fileObj["size"] = file.size();
       file = root.openNextFile();
     }
-    fileListJSON += "]}";
+    String json;
+    serializeJson(doc, json);
+    request->send(200, "application/json", json);
+  });
 
-    request->send(200, "application/json", fileListJSON);
+  server.on("/deleteFile", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (request->hasParam("filename", true)) {
+      // Use const pointer since we only read the value
+      const AsyncWebParameter* p = request->getParam("filename", true);
+      String filename = p->value();
+      if (filename.startsWith("/")) filename = filename.substring(1);
+      String fullPath = "/" + filename;
+      if (SPIFFS.exists(fullPath)) {
+        if (SPIFFS.remove(fullPath)) {
+          request->send(200, "text/plain", "File deleted: " + filename);
+          Serial.println("Deleted file: " + filename);
+        } else {
+          request->send(500, "text/plain", "Failed to delete file: " + filename);
+          Serial.println("Failed to delete: " + filename);
+        }
+      } else {
+        request->send(404, "text/plain", "File not found: " + filename);
+        Serial.println("File not found: " + filename);
+      }
+    } else {
+      request->send(400, "text/plain", "No filename provided");
+      Serial.println("No filename in delete request");
+    }
   });
 
   server.on("/setTankSize", HTTP_POST, [](AsyncWebServerRequest* request) {
@@ -481,6 +828,49 @@ void setup() {
     request->send(200, "text/plain", "Heater shutdown command processed");
   });
 
+  server.on("/turnHeaterOn", HTTP_POST, [](AsyncWebServerRequest* request) {
+    // Send heater on command
+    uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
+    sendData(data1, 24);
+    //controlEnable = 1; // Enable thermostat control
+    cshut = 0; // Reset shutdown flag
+    if (DEBUG) Serial.println("Heater on command sent");
+    request->send(200, "text/plain", "Heater on command sent");
+  });
+
+  server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest* request) {
+  if (request->hasParam("confirm") && request->getParam("confirm")->value() == "DOIT" && eventen) {
+    if (DEBUG) Serial.println("Reboot request received with confirmation");
+    request->send(200, "text/plain", "Rebooting ESP32...");
+    saveHistoryToSPIFFS();
+    end();
+    delay(1500); // Allow response to send
+    ESP.restart();
+  } else {
+    if (DEBUG) Serial.println("Reboot request denied: missing or incorrect confirmation");
+    request->send(400, "text/plain", "Reboot requires confirm=DOIT parameter");
+  }
+  });
+
+  server.on("/setZipCode", HTTP_POST, [](AsyncWebServerRequest* request) {
+    if (request->hasArg("zipcode")) {
+      String newZip = request->arg("zipcode");
+      if (newZip.length() == 5 && newZip.toInt() > 0) { // Basic validation: 5 digits
+        if (newZip != ZIP_CODE) { // Only update if changed
+          ZIP_CODE = newZip;
+          preferences.putString("zipcode", ZIP_CODE);
+          Serial.println("Zip code updated to: " + ZIP_CODE);
+          updateWeatherData(); // Fetch weather immediately on change
+        }
+        request->send(200, "text/plain", "Zip code set to " + ZIP_CODE);
+      } else {
+        request->send(400, "text/plain", "Invalid zip code. Must be a 5-digit number.");
+      }
+    } else {
+      request->send(400, "text/plain", "No zip code provided");
+    }
+  });
+
   server.onNotFound([](AsyncWebServerRequest *request){
     if (request->method() == HTTP_GET) {
       String path = request->url();
@@ -514,79 +904,22 @@ void setup() {
       Serial.printf("Client reconnected! Last message ID that it got is: %u\n",
       client->lastId());
     }
-  // send event with message "hello!", id current millis
-  // and set reconnect delay to 1 second
+    // send event with message "hello!", id current millis
+    // and set reconnect delay to 1 second
     client->send("hello!", NULL, millis(), 10000);
   });
 
   server.addHandler(&events);
   server.begin();
   Serial.println("HTTP server started");
-
-  preferences.begin("heater", false);
-  heaterRunTime = preferences.getULong("runtime", 0);
-  fuelConsumption = preferences.getFloat("fuelConsumption", 0);
-  tankRuntime = preferences.getFloat("tankRuntime", 0);
-  tankSizeGallons = preferences.getFloat("tankSize", 0);
-  tankConsumption = preferences.getFloat("tankConsumption", 0);
-  avgGallonPerHour = preferences.getFloat("avgGallonPerHour", 0.0);
-  totalRuntime = preferences.getULong("totalRuntime", 0);
-  glowPlugHours = preferences.getFloat("glowPlugHours", 0.0);
-  frostModeEnabled = preferences.getBool("frostMode", false);
-  walltemptrigger = preferences.getFloat("walltemptrigger", 0);
-  totalTankTime = preferences.getFloat("totalTankTime", 0.0);
-  rollingAvgGPH = preferences.getFloat("rollingAvgGPH", 0.0);
-  // preferences.begin("tempHistory", false);  // false for read/write mode
-  // loadTempHistory();
 }
 
 void loop() {
-  if (esp_task_wdt_status(NULL) == ESP_ERR_TIMEOUT) {
-    Serial.println("Warning: Task Watchdog Timer timeout detected!");
-    // Reset the WDT to prevent repeated warnings
-    esp_task_wdt_reset();
-  } else {
-    // Reset WDT if it hasn't triggered
-    esp_task_wdt_reset();
-  }
-
-  ElegantOTA.loop();
-
-  checkWiFiConnection();
-  timeClient.update();
-  static bool firstRun = true;
-  uptime = millis() - bootTime;
-  static long flashLength = 800;
-  unsigned long currentMillis = millis();
-  unsigned long flasherTimeNow = millis();
-  unsigned long flasherDiff = flasherTimeNow - flasherLastTime;
-
-  // LED Heartbeat
-  if (controlEnable == 0) {
-    flashLength = 800;
-  }
-  if (flasherDiff > flashLength) {
-    digitalWrite(LED_BUILTIN, HIGH);
-  }
-  if (flasherDiff > flashLength * 2) {
-    digitalWrite(LED_BUILTIN, LOW);
-    flasherLastTime = flasherTimeNow;
-  }
-
-  unsigned long tankcurrentMillis = millis();
-  static unsigned long prevMillis = 0;
-  float elapsedSeconds = (tankcurrentMillis - prevMillis) / 1000.0;
-  prevMillis = tankcurrentMillis;
-
-  totalTankTime += elapsedSeconds;
-
+  // Prioritize serial reads
   static byte Data[48];  // For compatibility with existing code
-  static int count = 0;
+  static int count = 0;  // Tracks combined frame size
 
   if (sOne.available() && eventen) {
-    // unsigned long rxTimeNow = millis();
-    // unsigned long rxDiff = rxTimeNow - rxLastTime;
-    // rxLastTime = rxTimeNow;
     int inByte = sOne.read();
     if (inByte == 0x76) {
       RxActive = true;
@@ -595,15 +928,6 @@ void loop() {
     if (RxActive) {
       frameBuffer[frameIndex++] = inByte;
       if (frameIndex == FRAME_SIZE) {
-        // Print the frame buffer
-        // Serial.print("Frame Received: ");
-        // for (int i = 0; i < FRAME_SIZE; i++) {
-        //   if (frameBuffer[i] < 0x10) Serial.print("0");  // Add leading zero for single digit hex
-        //   Serial.print(frameBuffer[i], HEX);
-        //   Serial.print(" ");
-        // }
-        // Serial.println();  // New line for better readability
-
         processFrame(frameBuffer);  // Process the frame
         RxActive = false;
         frameIndex = 0;  // Reset for next frame
@@ -611,12 +935,62 @@ void loop() {
     }
   }
 
-  if (combinedFrame[0] == 0x76 && combinedFrame[FRAME_SIZE] == 0x76) {  // Check if we have both frames
-    memcpy(Data, combinedFrame, COMBINED_FRAME_SIZE);                   // Copy into Data for existing logic
-    count = COMBINED_FRAME_SIZE;                                        // Indicate we have a full combined frame
+  // Watchdog check and reset
+  if (esp_task_wdt_status(NULL) == ESP_ERR_TIMEOUT) {
+    Serial.println("Warning: Task Watchdog Timer timeout detected!");
+    esp_task_wdt_reset();
+  } else {
+    esp_task_wdt_reset();
+  }
+
+  // OTA and WiFi maintenance
+  ElegantOTA.loop();
+  checkWiFiConnection();
+  timeClient.update();
+  unsigned long epochTime = timeClient.getEpochTime();
+
+  // Static variables and initial setup
+  static bool firstRun = true;
+  static bool serialEstablished = false;
+  unsigned long currentMillis = millis();
+  static bool serialActive = false;
+
+
+    // Detect overflow
+  if (currentMillis < lastMillis) {
+    overflowCount++; // Increment overflow counter on wraparound
+  }
+  lastMillis = currentMillis;
+
+  // Calculate uptime with overflow adjustment using unsigned long long
+  uptime = (unsigned long long)overflowCount * 4294967295UL + (unsigned long)(currentMillis - bootTime);
+
+
+  // LED Heartbeat
+  static unsigned long flasherLastTime = 0; // Adjusted initialization
+  unsigned long flasherTimeNow = millis();
+  unsigned long flasherDiff = (unsigned long)(flasherTimeNow - flasherLastTime);
+  static long flashLength = 800;
+  if (controlEnable == 0) flashLength = 800;
+  if (flasherDiff > flashLength) digitalWrite(LED_BUILTIN, HIGH);
+  if (flasherDiff > (unsigned long)(flashLength * 2)) { // Overflow-safe
+    digitalWrite(LED_BUILTIN, LOW);
+    flasherLastTime = flasherTimeNow;
+  }
+
+  // Tank runtime calculation
+  static unsigned long prevMillis = 0;
+  unsigned long elapsedMillis = (unsigned long)(currentMillis - prevMillis);
+  float elapsedSeconds = elapsedMillis / 1000.0;
+  prevMillis = currentMillis;
+  totalTankTime += elapsedSeconds;
+
+  // Process combined frame data (after serial reads)
+  if (combinedFrame[0] == 0x76 && combinedFrame[FRAME_SIZE] == 0x76) {
+    memcpy(Data, combinedFrame, COMBINED_FRAME_SIZE);
+    count = COMBINED_FRAME_SIZE;
     unsigned long writerTimeNow = millis();
-    unsigned long writerDiff = writerTimeNow - writerLastTime;
-    //count = 0;
+    unsigned long writerDiff = (unsigned long)(writerTimeNow - writerLastTime);
     heaterCommand = int(Data[2]);
     currentTemperature = int(Data[3]);
     setTemperature = int(Data[4]);
@@ -626,37 +1000,37 @@ void loop() {
     heaterinternalTemp = (int(Data[34]) << 8) | int(Data[35]);
     int glowPlugCurrent = (int(Data[38]) << 8) | int(Data[39]);
     glowPlugCurrent_Amps = glowPlugCurrent / 100.0;
-    pumpHz = int(Data[40] * 0.1);  //Convert to Hz
+    pumpHz = int(Data[40] * 0.1);
     heaterErrorNum = int(Data[27]);
-
     memset(combinedFrame, 0, COMBINED_FRAME_SIZE);
-    static unsigned long lastMeterUpdate = 0;
-    
-    if (heaterErrorNum > 1 && controlEnable ) {
-      controlEnable = 0;  // Disable control
+
+    lastSerialUpdate = millis();
+    serialActive = true;
+    if (!serialEstablished) {
+      controlEnable = 1;
+      Serial.println("Serial communications established - Control Enabled");
+      serialEstablished = true;
+    }
+
+    if (heaterErrorNum > 1 && controlEnable) {
+      controlEnable = 0;
       Serial.println("Heater control turned off due to error.");
       message = "Heater control turned off due to error.";
-      // Set LED to constant ON to indicate low voltage shutdown
-      flashLength = 1000000;  // A very long time to make it effectively constant ON
+      flashLength = 1000000;
       digitalWrite(LED_BUILTIN, HIGH);
     }
 
     if (heaterStateNum >= 6 && !cshut && controlEnable) {
-      controlEnable = 0;  // Disable control
+      controlEnable = 0;
       Serial.println("Heater shutdown unexpectedly. Disabling Thermostat.");
       message = "Heater shutdown unexpectedly. Disabling Thermostat.";
-      flashLength = 1000000;  // A very long time to make it effectively constant ON
+      flashLength = 1000000;
       digitalWrite(LED_BUILTIN, HIGH);
     }
 
-    // Check supplyVoltage
-    if (supplyVoltage >= 11.2) {
-        voltagegood = true;  // Only go true once voltage is above 11.5
-    } else if (supplyVoltage <= 10.5) {
-        voltagegood = false;  // Go false if voltage dips below or equal to 10.5
-    }
+    if (supplyVoltage >= REC_SUPPLY_VOLTAGE) voltagegood = true;
+    else if (supplyVoltage < MIN_SUPPLY_VOLTAGE) voltagegood = false;
 
-    // Adjust temperature for negative values
     if (currentTemperature > 155.0f && currentTemperature <= 255.0f) {
       currentTemperature -= 256.0f;
     }
@@ -666,37 +1040,26 @@ void loop() {
     }
 
     if (frostModeEnabled) {
-      float currentTempF = celsiusToFahrenheit(currentTemperature);  // Assuming currentTemperature is in Celsius
-      if (currentTempF < 35.0) {
-        // Set the temperature to the minimum setting (assuming min is 46°F from your slider)
-        setTemperature = fahrenheitToCelsius(46.0);  // Convert min Fahrenheit to Celsius
-        temperatureChangeByWeb = true;
-        // Turn on the heater if it's not already on
-        if (heaterStateNum == 0) {  // If heater is off or in standby
-          uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
-          sendData(data1, 24);
-          Serial.println("Frost Mode: Starting Heater");
-          message = "Front Mode Start";
-        }
-      }
-    }
-    
-    static float lastSetTemperature = setTemperature;
-    if (setTemperature != lastSetTemperature) {
-      lastSetTemperature = setTemperature;
-      // If setTemperature changed from the controller, reset the flag
-      if (!temperatureChangeByWeb) {
-        // Reset targetSetTemperature to match controller if not changed by web
-        targetSetTemperature = (int)setTemperature;  // Assuming setTemperature might be float
+      float currentTempF = celsiusToFahrenheit(currentTemperature);
+      if (currentTempF < 35.0 && heaterStateNum == 0) {
+        uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
+        sendData(data1, 24);
+        Serial.println("Frost Mode: Starting Heater");
+        message = "Frost Mode Start";
       }
     }
 
-    // Format output for better readability
-    if (currentMillis - lastSendTime >= 5000) {
+    static float lastSetTemperature = setTemperature;
+    if (setTemperature != lastSetTemperature) {
+      lastSetTemperature = setTemperature;
+      if (!temperatureChangeByWeb) targetSetTemperature = (int)setTemperature;
+    }
+
+    if ((unsigned long)(currentMillis - lastSendTime) >= 30000) { // Overflow-safe
       lastSendTime = currentMillis;
       Serial.println("Heater Status:");
-      Serial.printf("  Current Time: %s\n",timeClient.getFormattedTime());
-      Serial.printf("  Date: %s\n",getFormattedDate());
+      Serial.printf("  Current Time: %s\n", timeClient.getFormattedTime());
+      Serial.printf("  Date: %s\n", getFormattedDate());
       Serial.printf("  Command: %d\n", heaterCommand);
       Serial.printf("  Current Temp: %.2f°C\n", currentTemperature);
       Serial.printf("  Set Temp: %.2f°C\n", setTemperature);
@@ -706,15 +1069,10 @@ void loop() {
       Serial.printf("  Pump Hz: %.2f Hz\n", pumpHz);
       Serial.printf("  Fan Speed: %d RPM\n", fanSpeed);
       Serial.printf("  Supply Voltage: %.1f V\n", supplyVoltage);
-//      Serial.printf("  Glow Plug Hours: %.2f Hrs\n", glowPlugHours);
-      if (heaterStateNum >= 0 && heaterStateNum <= 8) {
-        Serial.printf("  State: %s\n", heaterState[heaterStateNum]);
-      } else {
-        Serial.println("Unknown");
-      }
+      Serial.printf("  State: %s\n", heaterState[heaterStateNum]);
       Serial.printf("  Error: %s\n", heaterError[heaterErrorNum]);
     }
-    // Handle heater commands
+
     if (int(heaterCommand) == 160) {
       controlEnable = 1;
       Serial.println("  Heater ON command detected");
@@ -724,17 +1082,15 @@ void loop() {
       Serial.println("  Heater OFF command detected");
     }
 
-    // Control heater based on temperature and conditions
-    if (controlEnable == 1 && currentTemperature > -100 && setTemperature > 0 && writerDiff > 30000) {
+    if (controlEnable == 1 && currentTemperature > -100 && setTemperature > 0 && (unsigned long)(writerDiff) > 30000) { // Overflow-safe
       writerLastTime = writerTimeNow;
-      if (setTemperature >= (currentTemperature + 2) && heaterErrorNum <= 1 && heaterStateNum == 0) {
+      if (setTemperature >= (currentTemperature + 1) && heaterErrorNum <= 1 && heaterStateNum == 0) {
         uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
         sendData(data1, 24);
         flashLength = 100;
         Serial.println("  Starting Heater");
       }
-
-      if (setTemperature <= (currentTemperature - 3) && (heaterStateNum == 5 || heaterStateNum == 2)) {
+      if (setTemperature <= (currentTemperature - 1) && (heaterStateNum >= 1 && heaterStateNum <= 5)) {
         uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
         sendData(data1, 24);
         cshut = 1;
@@ -742,182 +1098,401 @@ void loop() {
         Serial.println("  Stopping Heater");
       }
     }
-   
+
     if (temperatureChangeByWeb && targetSetTemperature != setTemperature) {
       adjustTemperatureToTarget();
     } else if (temperatureChangeByWeb && targetSetTemperature == setTemperature) {
-      // Reset the flag only when the adjustment is complete
       temperatureChangeByWeb = false;
     }
-    // LED behavior outside of frame processing
-    unsigned long flasherTimeNow = millis();
-    unsigned long flasherDiff = flasherTimeNow - flasherLastTime;
-
-    if (flasherDiff > flashLength) {
-      digitalWrite(LED_BUILTIN, HIGH);
-    }
-    if (flasherDiff > flashLength * 2) {
-      digitalWrite(LED_BUILTIN, LOW);
-      flasherLastTime = flasherTimeNow;
-    }
   }
- 
-  // Read DS18B20 temperature
-  static unsigned long lastSensorRead = 0;
-  if (millis() - lastSensorRead >= 2000) { // Read every 2 seconds
+
+  // Check serial timeout (5s without frames)
+  if (serialActive && (millis() - lastSerialUpdate > 10000)) {
+    serialActive = false;
+    controlEnable = 0;
+    
+    if (eventen) {
+      DynamicJsonDocument jsonDoc(1024);
+      jsonDoc["controlEnable"] = controlEnable;    
+      jsonDoc["serialActive"] = serialActive;
+      String jsonString;
+      serializeJson(jsonDoc, jsonString);
+      String eventString = "event: heater_update\ndata: " + jsonString + "\n\n";
+      events.send(eventString.c_str());
+    }
+    if (DEBUG) Serial.println("Serial communication stopped");
+  }
+
+// Fan control and sensor reading
+static unsigned long lastSensorRead = 0;
+const unsigned long READ_INTERVAL = 2000;
+const float VOLTAGE_CHANGE_THRESHOLD = 0.1;
+const float PWM_VOLTAGE_THRESHOLD = 0.2; // New threshold for PWM update (0.2V)
+if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-safe
     sensors.requestTemperatures();
-    walltemp = sensors.getTempCByIndex(0); // Get temperature in Celsius
+    walltemp = sensors.getTempCByIndex(0);
     if (walltemp == DEVICE_DISCONNECTED_C) {
-      Serial.println("Error: DS18B20 sensor disconnected");
-    } else {
-      Serial.printf("  Wall Temp: %d°F\n", walltemp);
+        if (DEBUG) Serial.println("Error: DS18B20 sensor disconnected");
+    } else if (DEBUG) {
+        Serial.printf("Wall Temp: %d°F\n", (int)(walltemp * 1.8 + 32));
     }
 
-    // Control for duct fan
-    if ((fanSpeed >= 2500 && heaterinternalTemp > 66 && voltagegood) || 
-        (fanSpeed == 0 && heaterinternalTemp >= 45)) {
-      digitalWrite(DUCT_FAN_RELAY_PIN, HIGH);
-      ductfan = 1;
-      ductfandelay = 0; // Reset delay if conditions are met for turning on
+    float wallTempF = celsiusToFahrenheit(walltemp);
+    if (walltemp == DEVICE_DISCONNECTED_C) {
+        tempwarn = -1;
     } else {
-      if (ductfandelay == 0) {
-        ductfandelay = millis() + 30000; // Set delay for 30secs
-      } else if (millis() >= ductfandelay) {
-        digitalWrite(DUCT_FAN_RELAY_PIN, LOW);
-        ductfan = 0;
-      }
-    }
-
-    // Control for wall fan
-    float gapC;
-    if (walltemptrigger >= -1 && walltemptrigger <= 10) {
-      gapC = walltemptrigger; // Use the set trigger if it's within the valid range
-    } else {
-      gapC = 3; // Default to 3 degrees Celsius if the trigger is out of range
-    }
-
-    if (walltemp > -55 && walltemp < 125) { // Valid range for DS18B20
-      if (currentTemperature != -200.0f) {
-        if (walltemp >= currentTemperature + gapC && voltagegood) { 
-          digitalWrite(WALL_FAN_RELAY_PIN, HIGH);
-          wallfan = 1;
-          wallfandelay = 0; // Reset delay if conditions are met for turning on
+        if (wallTempF > 120.0) {
+            uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
+            sendData(data1, 24);
+            cshut = 1;
+            controlEnable = 0;
+            tempwarn = 2;
+            if (DEBUG) Serial.printf("Wall temp %.1f°F > 120°F, shutting down heater\n", wallTempF);
+        } else if (wallTempF > 100.0) {
+            tempwarn = 1;
+            if (DEBUG) Serial.printf("Wall temp %.1f°F > 100°F\n", wallTempF);
         } else {
-          if (wallfandelay == 0) {
-            wallfandelay = millis() + 600000; // Set delay for 10 minutes (600000 milliseconds)
-          } else if (millis() >= wallfandelay) {
-            digitalWrite(WALL_FAN_RELAY_PIN, LOW);
-            wallfan = 0;
-          }
+            tempwarn = 0;
         }
-      }  
+    }
+
+    // Update cached PWM values only if supply voltage changed significantly
+    static float lastSupplyVoltage = -1.0; 
+    if (abs(supplyVoltage - lastSupplyVoltage) > VOLTAGE_CHANGE_THRESHOLD || lastSupplyVoltage < 0) {
+        if (!voltagegood) {
+            cachedFanLow = cachedFanMed = cachedFanHigh = 0;
+        } else {
+            cachedFanLow = calculateAdjustedPWM(MIN_FAN_VOLTAGE, supplyVoltage);  // 10.5V
+            cachedFanMed = calculateAdjustedPWM(MED_FAN_VOLTAGE, supplyVoltage);  // 11.5V
+            cachedFanHigh = calculateAdjustedPWM(supplyVoltage, supplyVoltage);   // supplyVoltage (e.g., 12V+)
+        }
+        lastSupplyVoltage = supplyVoltage;
+    }
+
+    float validatedSupply = (supplyVoltage <= 9.0 || supplyVoltage > 15.0 || isnan(supplyVoltage)) ? 12.0 : supplyVoltage;
+    float gapC = constrain(walltemptrigger, -1, 10);
+    static unsigned long speedChangeDelay = 0;
+    const unsigned long DEBOUNCE_PERIOD = 30000;
+
+    // Duct fan control
+    static int lastDuctFanPWM = -1;
+    static float lastDuctVoltage = -1.0; // Track last applied voltage
+    if (ductFanManualControl) {
+        if (manualDuctFanVoltage > 0) {
+            float newVoltage = manualDuctFanVoltage;
+            if (abs(newVoltage - lastDuctVoltage) >= PWM_VOLTAGE_THRESHOLD || lastDuctVoltage < 0) {
+                manualDuctFanSpeed = calculateAdjustedPWM(newVoltage, supplyVoltage);
+                ductfan = manualDuctFanSpeed; // Sync ductfan with manual PWM
+                lastDuctVoltage = newVoltage;
+            }
+        } else {
+            manualDuctFanSpeed = 0;
+            ductfan = 0;
+            lastDuctVoltage = 0.0;
+        }
+        ledcWrite(DUCT_FAN_PWM_PIN, manualDuctFanSpeed);
+        lastDuctFanPWM = manualDuctFanSpeed;
+        if (DEBUG) Serial.printf("Duct fan manual: PWM=%d, Voltage=%.1fV\n", manualDuctFanSpeed, manualDuctFanVoltage);
+    } else {
+        int newDuctFanPWM = 0;
+        static unsigned long ductfandelay = 0;
+        float newVoltage = 0.0;
+
+        if (walltemp > -55 && walltemp < 125 && currentTemperature != -200.0f) {
+            float tempGap = walltemp - currentTemperature;
+
+            if (tempGap < gapC) {
+                if (ductfandelay == 0) {
+                    ductfandelay = millis() + 60000;
+                    if (DEBUG) Serial.printf("Duct fan preparing to turn off, delay until %lu\n", ductfandelay);
+                }
+                if (millis() >= ductfandelay) {
+                    newDuctFanPWM = 0;
+                    newVoltage = 0.0;
+                } else {
+                    newDuctFanPWM = ductfan;  // Hold current PWM during delay
+                    newVoltage = lastDuctVoltage; // Maintain last voltage during delay
+                }
+            } else if (voltagegood) {
+                if (tempGap < gapC + 1) {
+                    newDuctFanPWM = cachedFanLow;
+                    newVoltage = MIN_FAN_VOLTAGE; // 10.5V
+                } else if (tempGap < gapC + 2) {
+                    newDuctFanPWM = cachedFanMed;
+                    newVoltage = MED_FAN_VOLTAGE; // 11.5V
+                } else {
+                    newDuctFanPWM = cachedFanHigh;
+                    newVoltage = validatedSupply; // supplyVoltage
+                }
+                ductfandelay = 0;
+                if (DEBUG) Serial.printf("Duct fan auto (tempGap mode): tempGap=%.1f, PWM=%d, Voltage=%.1fV\n",
+                    tempGap, newDuctFanPWM, newVoltage);
+            } else {
+                newDuctFanPWM = 0;
+                newVoltage = 0.0;
+                if (DEBUG) Serial.printf("Duct fan off (voltage not good)\n");
+            }
+
+            // Mode 1: Fan speed-based control (if tempGap isn’t driving)
+            if (newDuctFanPWM == 0 && fanSpeed > 2000 && heaterStateNum > 3) {
+                newVoltage = map(fanSpeed, 2000, 5000, 10.0, validatedSupply);
+                newVoltage = constrain(newVoltage, 10.0, validatedSupply);
+                newDuctFanPWM = calculateAdjustedPWM(newVoltage, validatedSupply);
+                ductfandelay = 0;
+                if (DEBUG) Serial.printf("Duct fan auto (fanSpeed mode): fanSpeed=%d, heaterState=%d, targetV=%.1f, PWM=%d\n",
+                    fanSpeed, heaterStateNum, newVoltage, newDuctFanPWM);
+            }
+        } else {
+            if (fanSpeed > 2000 && heaterStateNum > 3) {
+                newVoltage = map(fanSpeed, 2000, 5000, 10.0, validatedSupply);
+                newVoltage = constrain(newVoltage, 10.0, validatedSupply);
+                newDuctFanPWM = calculateAdjustedPWM(newVoltage, validatedSupply);
+                ductfandelay = 0;
+                if (DEBUG) Serial.printf("Duct fan auto (fanSpeed mode, temp invalid): fanSpeed=%d, heaterState=%d, targetV=%.1f, PWM=%d\n",
+                    fanSpeed, heaterStateNum, newVoltage, newDuctFanPWM);
+            } else {
+                newDuctFanPWM = 0;
+                newVoltage = 0.0;
+                ductfandelay = 0;
+                if (DEBUG && lastDuctFanPWM != 0) Serial.printf("Duct fan auto: Neither mode applies, PWM=0\n");
+            }
+        }
+
+        // Update ductfan only if voltage changes by 0.2V or more
+        if (abs(newVoltage - lastDuctVoltage) >= PWM_VOLTAGE_THRESHOLD || lastDuctVoltage < 0) {
+            ductfan = newDuctFanPWM;
+            lastDuctVoltage = newVoltage;
+        } else {
+            newDuctFanPWM = ductfan; // Retain last PWM if voltage change is small
+        }
+
+        ledcWrite(DUCT_FAN_PWM_PIN, newDuctFanPWM);
+        if (newDuctFanPWM != lastDuctFanPWM) {
+            if (DEBUG) Serial.printf("Duct fan PWM updated: %d -> %d, Voltage=%.1fV\n", lastDuctFanPWM, newDuctFanPWM, lastDuctVoltage);
+            lastDuctFanPWM = newDuctFanPWM;
+        }
+    }
+
+    // Wall fan control
+    static int lastWallFanPWM = -1;
+    static float lastWallVoltage = -1.0; // Track last applied voltage
+    if (wallFanManualControl) {
+        float newVoltage = manualWallFanVoltage;
+        if (newVoltage >= 0) {
+            float percent = (newVoltage - 6.7) / (HIGH_FAN_VOLTAGE - 6.7) * 100.0;
+            if (percent <= 0 || newVoltage == 0) {
+                manualWallFanSpeed = 0;
+                newVoltage = 0.0;
+            } else if (percent <= 50.0) {
+                float voltageRange = 9.5 - 6.7;
+                newVoltage = 6.7 + (percent / 50.0) * voltageRange;
+                manualWallFanSpeed = (int)(cachedFanLow * (6.7 / 10.5) + (cachedFanMed * (9.5 / 11.5) - cachedFanLow * (6.7 / 10.5)) * (percent / 50.0));
+            } else {
+                float voltageRange = validatedSupply - 9.5;
+                newVoltage = 9.5 + ((percent - 50.0) / 50.0) * voltageRange;
+                manualWallFanSpeed = (int)(cachedFanMed * (9.5 / 11.5) + (cachedFanHigh - cachedFanMed * (9.5 / 11.5)) * ((percent - 50.0) / 50.0));
+            }
+            manualWallFanSpeed = constrain(manualWallFanSpeed, 0, PWM_MAX);
+            if (abs(newVoltage - lastWallVoltage) >= PWM_VOLTAGE_THRESHOLD || lastWallVoltage < 0) {
+                wallfan = manualWallFanSpeed;
+                lastWallVoltage = newVoltage;
+            }
+            if (DEBUG) Serial.printf("Wall fan manual: Percent=%.1f%%, Voltage=%.1fV, PWM=%d\n", percent, newVoltage, manualWallFanSpeed);
+        }
+        ledcWrite(WALL_FAN_PWM_PIN, manualWallFanSpeed);
+        lastWallFanPWM = manualWallFanSpeed;
+    } else {
+        int newWallFanPWM = 0;
+        float newVoltage = 0.0;
+
+        if (voltagegood && heaterStateNum > 3) {
+            if (fanSpeed <= 2000) {
+                if (wallfandelay == 0) {
+                    wallfandelay = millis() + 30000; // 30-second delay to turn off
+                    if (DEBUG) Serial.printf("Wall fan preparing to turn off (low speed), delay until %lu\n", wallfandelay);
+                }
+                if (millis() >= wallfandelay) {
+                    newWallFanPWM = 0;
+                    newVoltage = 0.0;
+                } else {
+                    newWallFanPWM = wallfan; // Hold last PWM during delay
+                    newVoltage = lastWallVoltage; // Maintain last voltage during delay
+                }
+            } else {
+                // Linear interpolation: 2000 RPM (6.7V) to 5000 RPM (supplyVoltage)
+                float minPWM = cachedFanLow * (6.7 / 10.5); // 6.7V
+                float maxPWM = cachedFanHigh; // supplyVoltage
+                float rpmRange = 5000.0 - 2000.0; // 3000 RPM span
+                float pwmRange = maxPWM - minPWM;
+                float rpmFraction = (fanSpeed - 2000.0) / rpmRange; // 0.0 at 2000, 1.0 at 5000
+                newWallFanPWM = (int)(minPWM + pwmRange * (fanSpeed < 5000 ? rpmFraction : 1.0));
+                newWallFanPWM = constrain(newWallFanPWM, (int)minPWM, (int)maxPWM);
+                newVoltage = 6.7 + (rpmFraction * (validatedSupply - 6.7)); // Voltage mapping
+                wallfandelay = 0; // No delay on speed changes
+            }
+        } else if (wallfan > 0) { // Condition false but fan was on
+            if (wallfandelay == 0) {
+                wallfandelay = millis() + 30000; // 30-second delay to turn off
+                if (DEBUG) Serial.printf("Wall fan preparing to turn off (state/voltage), delay until %lu\n", wallfandelay);
+            }
+            if (millis() >= wallfandelay) {
+                newWallFanPWM = 0;
+                newVoltage = 0.0;
+            } else {
+                newWallFanPWM = wallfan; // Hold last PWM during delay
+                newVoltage = lastWallVoltage; // Maintain last voltage during delay
+            }
+        } else {
+            newWallFanPWM = 0;
+            newVoltage = 0.0;
+        }
+
+        // Update wallfan only if voltage changes by 0.2V or more
+        if (abs(newVoltage - lastWallVoltage) >= PWM_VOLTAGE_THRESHOLD || lastWallVoltage < 0) {
+            wallfan = newWallFanPWM;
+            lastWallVoltage = newVoltage;
+        } else {
+            newWallFanPWM = wallfan; // Retain last PWM if voltage change is small
+        }
+
+        ledcWrite(WALL_FAN_PWM_PIN, newWallFanPWM);
+        if (newWallFanPWM != lastWallFanPWM) {
+            if (DEBUG) Serial.printf("Wall fan PWM updated: %d -> %d, Voltage=%.1fV\n", lastWallFanPWM, newWallFanPWM, lastWallVoltage);
+            lastWallFanPWM = newWallFanPWM;
+        }
     }
 
     lastSensorRead = millis();
-  }
-  
-  // && millis() > wallfandelay
-  esp_task_wdt_reset();
-  
-  // Send heater status update
+}
+
+  // Event updates every 2s
   static unsigned long lastEvent = 0;
-  if (millis() - lastEvent >= 2000) {
+  if ((unsigned long)(millis() - lastEvent) >= 2000 && serialActive) { // Overflow-safe
     lastEvent = millis();
-
-    // Update runtime if heater is in one of the running states
-    if (heaterStateNum >= 2 && heaterStateNum <= 5) {
-      heaterRunTime += 2;  // Add 2 seconds to runtime
-    }
-    // Update runtime and calculate average if pump is running
-    // Calculate fuel consumption for this 2-second cycle
-    float pumpsPerCycle = pumpHz * 2; // Pumps in 2 seconds
-    float cycleFuel = (pumpsPerCycle / 1000.0) * PUMP_FLOW_PER_1000_PUMPS; // Convert Hz to ml per cycle
-    // Update fuel consumption and runtime only if pump is running
+    if (heaterStateNum >= 2 && heaterStateNum <= 5) heaterRunTime += 2;
     if (pumpHz > 0) {
+      float pumpsPerCycle = pumpHz * 2;
+      float cycleFuel = (pumpsPerCycle / 1000.0) * PUMP_FLOW_PER_1000_PUMPS;
+      float cycleFuelGallons = cycleFuel * ML_TO_GALLON;
       fuelConsumption += cycleFuel;
-      tankConsumption += cycleFuel; // Add to tank consumption
-
-      // Update runtime since pump is running
-      tankRuntime += 2;  // Add 2 seconds to tank runtime
-      
-      // Calculate instantaneous GPH over 2 seconds
-      currentGPH = (cycleFuel * ML_TO_GALLON) * 3600.0 / 2.0; // Adjusted for 2-second cycle
+      tankConsumption += cycleFuel;
+      tankRuntime += 2;
+      currentGPH = cycleFuelGallons * 3600.0 / 2.0;
+      // Accumulate pump Hz for averaging
+      pumpHzAccumulator += pumpHz;
+      pumpHzSampleCount++;
+      hourlyFuelAccumulator += cycleFuelGallons;
     } else {
       currentGPH = 0;
     }
-    
-    if (glowPlugCurrent_Amps > 0.5) {
-        glowPlugHours += 2.0 / 3600.0;                // Increment by 2 second in hours
-    }
-    
-    // Update rolling average using EMA
+    if (glowPlugCurrent_Amps > 0.5) glowPlugHours += 2.0 / 3600.0;
     rollingAvgGPH = (alpha * currentGPH) + ((1 - alpha) * rollingAvgGPH);
-    
-    // Calculate average GPH using totalTankTime rather than tankRuntime
     if (totalTankTime > 0) {
-        float gallonsUsed = tankConsumption * ML_TO_GALLON;
-        avgGallonPerHour = (gallonsUsed * 3600) / totalTankTime;
+      float gallonsUsed = tankConsumption * ML_TO_GALLON;
+      avgGallonPerHour = (gallonsUsed * 3600) / totalTankTime;
     } else {
-        avgGallonPerHour = 0.0;
+      avgGallonPerHour = 0.0;
     }
-    // Calculate remaining fuel in gallons
+    // float remainingRuntimeHours = (remainingFuelGallons / avgGallonPerHour);
+
+    // Calculate remainingRuntimeHours using recent hourly fuel usage
+    float recentAvgGPH = 0.0;
+    int validHours = 0;
+    const int HOURS_TO_AVERAGE = 12; // Use last 6 hours (adjustable)
+    float remainingRuntimeHours = NAN; // Default to NAN
+    unsigned long currentTime = timeClient.getEpochTime();
+
+    // Calculate average GPH from the last HOURS_TO_AVERAGE completed hours
+    for (int i = 0; i < HOURLY_FUEL_SIZE && validHours < HOURS_TO_AVERAGE; i++) {
+      int idx = (hourlyFuelIndex - 1 - i + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE; // Most recent first
+      if (hourlyFuelTimestamps[idx] > 0 && (currentTime - hourlyFuelTimestamps[idx]) <= (HOURS_TO_AVERAGE * 3600)) {
+        recentAvgGPH += hourlyFuelGallons[idx]; // Each entry is gallons per hour
+        validHours++;
+      }
+    }
+
     float remainingFuelGallons = tankSizeGallons - (tankConsumption * ML_TO_GALLON);
-
-    // Estimate remaining runtime in hours
-    float remainingRuntimeHours = (remainingFuelGallons / avgGallonPerHour);
     float rollingRuntimeHours = (remainingFuelGallons / rollingAvgGPH);
-
-    // Check for low fuel condition
-    float fuelUsedPercentage = (tankConsumption * ML_TO_GALLON) / tankSizeGallons;
-    if (fuelUsedPercentage >= 0.98) { // 98% of tank size
-      Serial.println("Fuel level critically low. Shutting down heater.");
-      
-      // Turn off the heater
-      controlEnable = 0;
-      uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
-      sendData(data1, 24);
-      cshut = 1;
+    if (validHours > 0) {
+      recentAvgGPH /= validHours; // Average GPH over valid hours
+      if (tankSizeGallons > 0 && recentAvgGPH > 0) {
+        remainingRuntimeHours = remainingFuelGallons / recentAvgGPH;
+      }
+    } else if (currentGPH > 0 && tankSizeGallons > 0) {
+      // Fallback to currentGPH if no hourly data
+      remainingRuntimeHours = remainingFuelGallons / currentGPH;
     }
-    
-    // Check if supply voltage is below safe threshold
+
     String voltageWarning = "";
     if ((heaterStateNum >= 0 && heaterStateNum <= 4) && supplyVoltage <= 11.0) {
       voltageWarning = "Start volt sag";
     } else if (supplyVoltage <= 10.2 && controlEnable == 1 && heaterStateNum == 5) {
-      // Turn off the heater if it's currently enabled
       uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
       sendData(data1, 24);
       cshut = 1;
-      controlEnable = 0;  // Disable control
+      controlEnable = 0;
       voltageWarning = "Low voltage!";
       Serial.println("Heater turned off due to low voltage: " + String(supplyVoltage, 1) + "V");
-      message = "Heater turned off due to low votage.";
-      // Set LED to constant ON to indicate low voltage shutdown
-      flashLength = 1000000;  // A very long time to make it effectively constant ON
+      message = "Heater turned off due to low voltage.";
+      flashLength = 1000000;
       digitalWrite(LED_BUILTIN, HIGH);
     }
 
-    Serial.println("\nFuel Report:");
-    Serial.printf("  Fuel Consumed Lifetime: %.2f gallons\n", fuelConsumption * ML_TO_GALLON);
-    Serial.printf("  Fuel Consumed Tank: %.2f gallons\n", tankConsumption * ML_TO_GALLON);
-    Serial.printf("  Current GPH: %.2f\n", (pumpHz / 1000.0) * PUMP_FLOW_PER_1000_PUMPS * 3600 * ML_TO_GALLON);
-    Serial.printf("  Average GPH: %.2f\n", avgGallonPerHour);
-    Serial.printf("  Tank Size: %.2f gallons\n", tankSizeGallons);
-    Serial.printf("  Tank Runtime: %.2f Hrs\n", tankRuntime / 3600.0);
+    // History update every 5min
+    static unsigned long lastHistUpdate = 0;
+    static bool firstHistUpdate = true;  // Flag for first run
+    if (firstHistUpdate || (unsigned long)(millis() - lastHistUpdate) >= 300000) { // Overflow-safe
+      lastHistUpdate = millis();
+      if (epochTime < 1710000000) {
+        Serial.println("NTP not synced, epoch: " + String(epochTime));
+      }
+      tempHistory[tempIndex] = currentTemperature;
+      tempTimestamps[tempIndex] = epochTime;
+      tempIndex = (tempIndex + 1) % TEMP_HISTORY_SIZE;
+      outsideTempHistory[outsideTempIndex] = outsideTempF; // Store in Fahrenheit
+      outsideTempTimestamps[outsideTempIndex] = epochTime;
+      outsideTempIndex = (outsideTempIndex + 1) % OUTSIDE_TEMP_HISTORY_SIZE;
+      voltageHistory[voltageIndex] = supplyVoltage;
+      voltageTimestamps[voltageIndex] = epochTime;
+      voltageIndex = (voltageIndex + 1) % VOLTAGE_HISTORY_SIZE;
+      // Calculate average pump Hz over the 5-minute period
+      pumpHzHistory[pumpHzIndex] = (pumpHzSampleCount > 0) ? (pumpHzAccumulator / pumpHzSampleCount) : pumpHz;
+      pumpHzTimestamps[pumpHzIndex] = epochTime;
+      pumpHzIndex = (pumpHzIndex + 1) % PUMP_HZ_HISTORY_SIZE;
+      // Reset accumulator and count for the next period
+      pumpHzAccumulator = 0.0;
+      pumpHzSampleCount = 0;
+      if ((unsigned long)(millis() - lastHourlyUpdate) >= HOUR_IN_MS) {
+        hourlyFuelGallons[hourlyFuelIndex] = hourlyFuelAccumulator;
+        hourlyFuelTimestamps[hourlyFuelIndex] = epochTime - 3600; // Start of the last hour
+        hourlyFuelIndex = (hourlyFuelIndex + 1) % HOURLY_FUEL_SIZE;
+        hourlyFuelAccumulator = 0.0; // Reset accumulator every hour
+        lastHourlyUpdate = millis();
+        // Serial.printf("Hourly fuel logged: %.3f gallons at index %d\n", 
+        //               hourlyFuelGallons[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE], 
+        //               hourlyFuelIndex - 1);
+      }
+      saveHistoryToSPIFFS();
+      firstHistUpdate = false;  // Disable first-run trigger after this
+    }
 
-    // Update event data for web interface
     DynamicJsonDocument jsonDoc(1024);
     jsonDoc["currentTemp"] = celsiusToFahrenheit(currentTemperature);
     jsonDoc["setTemp"] = celsiusToFahrenheit(setTemperature);
+    jsonDoc["targettemp"] = round(celsiusToFahrenheit(targetSetTemperature));
+    jsonDoc["tempadjusting"] = temperatureChangeByWeb;
     jsonDoc["state"] = heaterState[heaterStateNum];
     jsonDoc["error"] = heaterError[heaterErrorNum];
+    jsonDoc["statenum"] = heaterStateNum;
     jsonDoc["errornum"] = heaterErrorNum;
     jsonDoc["heaterHourMeter"] = heaterRunTime / 3600.0;
     jsonDoc["uptime"] = uptime / 1000;
     jsonDoc["time"] = timeClient.getFormattedTime();
+    jsonDoc["epochTime"] = epochTime;
     jsonDoc["date"] = getFormattedDate();
     jsonDoc["fuelConsumedLifetime"] = fuelConsumption * ML_TO_GALLON;
     jsonDoc["fuelConsumedTank"] = tankConsumption * ML_TO_GALLON;
+    jsonDoc["fuelUsedPercentage"] = (tankConsumption * ML_TO_GALLON) / tankSizeGallons;
     jsonDoc["currentUsage"] = currentGPH;
     jsonDoc["averageGPH"] = avgGallonPerHour;
     jsonDoc["fanSpeed"] = fanSpeed;
@@ -929,48 +1504,53 @@ void loop() {
     jsonDoc["tankRuntime"] = tankRuntime / 3600;
     jsonDoc["remainingRuntimeHours"] = remainingRuntimeHours;
     jsonDoc["rollingAvgGPH"] = rollingAvgGPH;
-    const float epsilon = 0.0001f;
-    jsonDoc["rollingRuntimeHours"] = (rollingRuntimeHours > 2190.0 || isnan(rollingRuntimeHours) || abs(rollingRuntimeHours) < epsilon) ? JsonVariant() : rollingRuntimeHours;
+    jsonDoc["rollingRuntimeHours"] = (rollingRuntimeHours > 2190.0 || isnan(rollingRuntimeHours) || abs(rollingRuntimeHours) < 0.0001f) ? JsonVariant() : rollingRuntimeHours;
     jsonDoc["heaterinternalTemp"] = heaterinternalTemp;
     jsonDoc["glowPlugCurrent_Amps"] = glowPlugCurrent_Amps;
     jsonDoc["pumpHz"] = pumpHz;
     jsonDoc["controlEnable"] = controlEnable;
     jsonDoc["walltemp"] = celsiusToFahrenheit(walltemp);
     jsonDoc["walltemptrigger"] = (walltemptrigger * 9.0 / 5.0);
+    jsonDoc["tempwarn"] = tempwarn;
     jsonDoc["ductfan"] = ductfan;
     jsonDoc["wallfan"] = wallfan;
+    jsonDoc["ductFanManualControl"] = ductFanManualControl;
+    jsonDoc["wallFanManualControl"] = wallFanManualControl;
+    jsonDoc["manualDuctFanSpeed"] = manualDuctFanSpeed;
+    jsonDoc["manualWallFanSpeed"] = manualWallFanSpeed;
+    jsonDoc["manualDuctFanVoltage"] = manualDuctFanVoltage;
+    jsonDoc["manualWallFanVoltage"] = manualWallFanVoltage;
     jsonDoc["voltagegood"] = voltagegood;
-    jsonDoc["ductfandelay"] = max(0UL, (ductfandelay - millis()) / 1000UL); // Convert to seconds, ensuring no negative values
-    jsonDoc["wallfandelay"] = max(0UL, (wallfandelay - millis()) / 1000UL); // Convert to seconds, ensuring no negative values
+    jsonDoc["ductfandelay"] = max(0UL, (unsigned long)(ductfandelay - millis()) / 1000UL); // Overflow-safe
+    jsonDoc["wallfandelay"] = max(0UL, (unsigned long)(wallfandelay - millis()) / 1000UL); // Overflow-safe
     jsonDoc["tempHistory"] = serializeTempHistory();
+    jsonDoc["outsideTempHistory"] = serializeOutsideTempHistory(); // Add new history
     jsonDoc["voltageHistory"] = serializeVoltageHistory();
+    jsonDoc["pumpHzHistory"] = serializePumpHzHistory();
+    jsonDoc["hourlyFuelHistory"] = serializeHourlyFuelHistory(); // Simplified inclusion
     jsonDoc["message"] = message;
+    jsonDoc["serialEstablished"] = serialEstablished;
+    jsonDoc["serialActive"] = serialActive;
+    jsonDoc["outsideTempF"] = isnan(outsideTempF) ? JsonVariant() : outsideTempF; // Add outside temp
+    jsonDoc["outsideHumidity"] = isnan(outsideHumidity) ? JsonVariant() : outsideHumidity; // Add humidity
+    jsonDoc["zipcode"] = ZIP_CODE;
+    jsonDoc["saveError"] = saveError; // Add error message to JSON
 
     String jsonString;
     serializeJson(jsonDoc, jsonString);
-    //Serial.printf("JSON String length: %d\n", jsonString.length());
-
     String escapedJsonString = "";
     for (int i = 0; i < jsonString.length(); i++) {
-      if (jsonString[i] == '\n') {
-        escapedJsonString += "\\n";
-      } else if (jsonString[i] == '\r') {
-        escapedJsonString += "\\r";
-      } else {
-        escapedJsonString += jsonString[i];
-      }
+      if (jsonString[i] == '\n') escapedJsonString += "\\n";
+      else if (jsonString[i] == '\r') escapedJsonString += "\\r";
+      else escapedJsonString += jsonString[i];
     }
-
-    // Correct format for Server-Sent Events
     if (eventen) {
       String eventString = "event: heater_update\ndata: " + escapedJsonString + "\n\n";
       events.send(eventString.c_str());
-      // Serial.println("  Sending:\n" + jsonString);  
     }
 
-    // Periodically save persistent data
     static unsigned long lastSave = 0;
-    if (millis() - lastSave >= 30000) {  // Save every 30sec
+    if ((unsigned long)(millis() - lastSave) >= 30000) { // Overflow-safe
       preferences.putFloat("fuelConsumption", fuelConsumption);
       preferences.putFloat("tankRuntime", tankRuntime);
       preferences.putFloat("tankConsumption", tankConsumption);
@@ -982,60 +1562,27 @@ void loop() {
       preferences.putFloat("walltemptrigger", walltemptrigger);
       preferences.putFloat("totalTankTime", totalTankTime);
       preferences.putFloat("rollingAvgGPH", rollingAvgGPH);
+      if (ductFanManualControl) {
+        preferences.putInt("manualDuctSpeed", manualDuctFanSpeed);
+        preferences.putFloat("manualDuctVoltage", manualDuctFanVoltage);
+      }
+      if (wallFanManualControl) {
+        preferences.putInt("manualWallSpeed", manualWallFanSpeed);
+        preferences.putFloat("manualWallVoltage", manualWallFanVoltage);
+      }
       lastSave = millis();
     }
   }
-  esp_task_wdt_reset();
-  if (currentMillis - lastMemoryCheckTime >= 60000) {  // Check memory every minute
+
+  // Memory stats every 60s
+  if ((unsigned long)(currentMillis - lastMemoryCheckTime) >= 60000) { // Overflow-safe
     lastMemoryCheckTime = currentMillis;
     printMemoryStats();
   }
 
-  static unsigned long lastTempUpdate = 0;
-  if (millis() - lastTempUpdate >= 300000) {
-    lastTempUpdate = millis();
-    tempHistory[tempIndex] = currentTemperature;
-    tempTimestamps[tempIndex] = millis();
-    tempIndex = (tempIndex + 1) % TEMP_HISTORY_SIZE; // Circular buffer index
-    // Add voltage history update
-    voltageHistory[voltageIndex] = supplyVoltage;
-    voltageTimestamps[voltageIndex] = millis();
-    voltageIndex = (voltageIndex + 1) % VOLTAGE_HISTORY_SIZE;
+  if ((unsigned long)(millis() - lastWeatherUpdate) >= WEATHER_UPDATE_INTERVAL) {
+    updateWeatherData();
   }
- 
-  // unsigned long rollavgcurrentTime = millis();
-  // if (rollavgcurrentTime - lastSampleTime >= 60000) { // Every minute
-  //   lastSampleTime = rollavgcurrentTime;
-    
-  //   // Store the current GPH value
-  //   gphSamples[sampleIndex] = currentGPH;
-  //   sampleTimestamps[sampleIndex] = rollavgcurrentTime;
-    
-  //   // Move to the next sample position, wrap around if necessary
-  //   sampleIndex = (sampleIndex + 1) % SAMPLE_SIZE;
-  // }
-
-  // // Calculate rolling average GPH
-  // float sum = 0;
-  // int rollavgcount = 0;
-  // for (int i = 0; i < SAMPLE_SIZE; i++) {
-  //   if (rollavgcurrentTime - sampleTimestamps[i] <= 28800000) { // 8 hours in milliseconds
-  //     sum += gphSamples[i];
-  //     rollavgcount++;
-  //   }
-  // }
-
-  // if (rollavgcount > 0) {
-  //   rollingAvgGPH = sum / rollavgcount;
-  // } else {
-  //   rollingAvgGPH = 0; // If no samples within the last 8 hours, set to 0 or another default value
-  // }
-  // static unsigned long lastTempHistorySave = 0;
-  // if (millis() - lastTempHistorySave >= INTERVAL_BETWEEN_SAVES) {
-  //   saveTempHistory();
-  //   lastTempHistorySave = millis();
-  // }
-  esp_task_wdt_reset();
 }
 
 bool validateCRC(uint8_t* frame) {
@@ -1090,39 +1637,30 @@ void processFrame(uint8_t* frame) {
   esp_task_wdt_reset();
 }
 
-String frameToHex(uint8_t* frame) {
-  String hexString = "";
-  for (int i = 0; i < FRAME_SIZE; i++) {
-    if (frame[i] < 0x10) hexString += "0";
-    hexString += String(frame[i], HEX);
-  }
-  return hexString;
-}
-
 void adjustTemperatureToTarget() {
   int degreesToAdjust = round(targetSetTemperature - setTemperature);
 
   if (degreesToAdjust == 0) {
-    Serial.println("Temperature already at target.");
+    if (DEBUG) Serial.println("Temperature already at target.");
     return;
   }
 
-  Serial.print("Need to adjust by ");
-  Serial.print(abs(degreesToAdjust));
-  Serial.println(" degrees.");
-
-  if (degreesToAdjust > 0) {
-    simulateButtonPress(increaseTempPin);
-    Serial.println("Increased temperature by 1 degree.");
-    //  targetSetTemperature -= 1;  // Reduce the target by 1 degree after adjustment
-  } else {
-    simulateButtonPress(decreaseTempPin);
-    Serial.println("Decreased temperature by 1 degree.");
-    //  targetSetTemperature += 1;  // Increase the target by 1 degree after adjustment
+  // Only adjust if interval allows
+  if ((unsigned long)(millis() - lastAdjustmentTime) >= adjustmentInterval) { // Overflow-safe
+    if (DEBUG) {
+      Serial.print("Need to adjust by ");
+      Serial.print(abs(degreesToAdjust));
+      Serial.println(" degrees.");
+    }
+    if (degreesToAdjust > 0) {
+      simulateButtonPress(increaseTempPin);
+      if (DEBUG) Serial.println("Increased temperature by 1 degree.");
+    } else {
+      simulateButtonPress(decreaseTempPin);
+      if (DEBUG) Serial.println("Decreased temperature by 1 degree.");
+    }
+    lastAdjustmentTime = millis();
   }
-
-  // Note: Here we're not waiting for the heater to respond;
-  // we're relying on the loop to handle that.
 }
 
 void simulateButtonPress(int pin) {
@@ -1162,12 +1700,13 @@ String serializeTempHistory() {
   JsonArray tempArray = tempJsonDoc.createNestedArray("tempHistory");
   JsonArray timeArray = tempJsonDoc.createNestedArray("timestamps");
 
-  unsigned long currentTime = millis();
+  // Use current epoch time in seconds
+  unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
-    int realIndex = (tempIndex + i) % TEMP_HISTORY_SIZE; // Get the correct circular index
-    if (tempHistory[realIndex] > -100 && currentTime - tempTimestamps[realIndex] <= 43200000) {  // 12 hours in milliseconds
+    int realIndex = (tempIndex + i) % TEMP_HISTORY_SIZE; // Correct circular index
+    if (tempHistory[realIndex] > -100 && (currentTime - tempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
       tempArray.add(celsiusToFahrenheit(tempHistory[realIndex]));
-      timeArray.add((currentTime - tempTimestamps[realIndex]) / 1000);
+      timeArray.add(currentTime - tempTimestamps[realIndex]); // Time difference in seconds
     }
   }
   String output;
@@ -1176,16 +1715,17 @@ String serializeTempHistory() {
 }
 
 String serializeVoltageHistory() {
-  DynamicJsonDocument voltageJsonDoc(8192);  // Adjust size as necessary
+  DynamicJsonDocument voltageJsonDoc(8192); // Adjust size as necessary
   JsonArray voltageArray = voltageJsonDoc.createNestedArray("voltageHistory");
   JsonArray timeArray = voltageJsonDoc.createNestedArray("timestamps");
 
-  unsigned long currentTime = millis();
+  // Use current epoch time in seconds
+  unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
     int realIndex = (voltageIndex + i) % VOLTAGE_HISTORY_SIZE;
-    if (voltageHistory[realIndex] >= 0 && currentTime - voltageTimestamps[realIndex] <= 43200000) {  // 12 hours
+    if (voltageHistory[realIndex] >= 0 && (currentTime - voltageTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
       voltageArray.add(voltageHistory[realIndex]);
-      timeArray.add((currentTime - voltageTimestamps[realIndex]) / 1000);
+      timeArray.add(currentTime - voltageTimestamps[realIndex]); // Time difference in seconds
     }
   }
   String output;
@@ -1193,35 +1733,371 @@ String serializeVoltageHistory() {
   return output;
 }
 
-void loadTempHistory() {
-  // Load temperature data
-  for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
-    char keyTemp[20];  // Ensure this is large enough for your key
-    char keyTime[20];  // Same here
-    snprintf(keyTemp, sizeof(keyTemp), "temp_%d", i);
-    snprintf(keyTime, sizeof(keyTime), "time_%d", i);
-    
-    tempHistory[i] = preferences.getFloat(keyTemp, 0.0);
-    tempTimestamps[i] = preferences.getULong(keyTime, 0);
-    
-    if (tempHistory[i] != 0.0 || tempTimestamps[i] != 0) {
-      tempIndex = (i + 1) % TEMP_HISTORY_SIZE;  // Update index to the last written position
+String serializePumpHzHistory() {
+  DynamicJsonDocument pumpHzJsonDoc(8192); // Adjust size as necessary
+  JsonArray pumpHzArray = pumpHzJsonDoc.createNestedArray("pumpHzHistory");
+  JsonArray timeArray = pumpHzJsonDoc.createNestedArray("timestamps");
+
+  unsigned long currentTime = timeClient.getEpochTime();
+  for (int i = 0; i < PUMP_HZ_HISTORY_SIZE; i++) {
+    int realIndex = (pumpHzIndex + i) % PUMP_HZ_HISTORY_SIZE;
+    if (pumpHzHistory[realIndex] >= 0 && (currentTime - pumpHzTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
+      pumpHzArray.add(pumpHzHistory[realIndex]);
+      timeArray.add(currentTime - pumpHzTimestamps[realIndex]); // Time difference in seconds
     }
+  }
+  String output;
+  serializeJson(pumpHzJsonDoc, output);
+  return output;
+}
+
+// New serialization function for outdoor temperature
+String serializeOutsideTempHistory() {
+    DynamicJsonDocument outsideTempJsonDoc(8192); // Adjust size as necessary
+    JsonArray outsideTempArray = outsideTempJsonDoc.createNestedArray("outsideTempHistory");
+    JsonArray timeArray = outsideTempJsonDoc.createNestedArray("timestamps");
+
+    unsigned long currentTime = timeClient.getEpochTime();
+    for (int i = 0; i < OUTSIDE_TEMP_HISTORY_SIZE; i++) {
+        int realIndex = (outsideTempIndex + i) % OUTSIDE_TEMP_HISTORY_SIZE;
+        if (!isnan(outsideTempHistory[realIndex]) && (currentTime - outsideTempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
+            outsideTempArray.add(outsideTempHistory[realIndex]); // Already in Fahrenheit
+            timeArray.add(currentTime - outsideTempTimestamps[realIndex]); // Time difference in seconds
+        }
+    }
+    String output;
+    serializeJson(outsideTempJsonDoc, output);
+    return output;
+}
+
+String serializeHourlyFuelHistory() {
+  DynamicJsonDocument fuelJsonDoc(4096); // Adjust size as necessary
+  JsonArray fuelArray = fuelJsonDoc.createNestedArray("hourlyFuelGallons");
+  JsonArray timeArray = fuelJsonDoc.createNestedArray("hourlyFuelTimestamps");
+
+  unsigned long currentTime = timeClient.getEpochTime();
+  for (int i = 0; i < HOURLY_FUEL_SIZE; i++) {
+    int realIndex = (hourlyFuelIndex - HOURLY_FUEL_SIZE + i + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE;
+    if (hourlyFuelTimestamps[realIndex] > 0 && (currentTime - hourlyFuelTimestamps[realIndex]) <= 86400) { // 24 hours
+      fuelArray.add(hourlyFuelGallons[realIndex]);
+      timeArray.add(currentTime - hourlyFuelTimestamps[realIndex]); // Relative time in seconds ago
+    }
+  }
+  fuelJsonDoc["hourlyFuelAccumulator"] = hourlyFuelAccumulator; // Current hour’s running total
+
+  String output;
+  serializeJson(fuelJsonDoc, output);
+  return output;
+}
+
+// Update saveHistoryToSPIFFS to include outdoor temperature
+void saveHistoryToSPIFFS() {
+  saveError = "";
+  unsigned long currentTime = timeClient.getEpochTime();
+  if (currentTime < 1710000000) {
+    saveError = "NTP not synced, skipping save";
+    Serial.println(saveError);
+    return;
+  }
+
+  unsigned long secondsSinceEpochStart = currentTime % (HISTORY_FILES * BLOCK_DURATION);
+  int blockIndex = secondsSinceEpochStart / BLOCK_DURATION;
+  String filename = "/history_" + String(blockIndex) + ".json";
+
+  unsigned long blockStart = (currentTime / BLOCK_DURATION) * BLOCK_DURATION;
+  unsigned long blockEnd = blockStart + BLOCK_DURATION;
+
+  DynamicJsonDocument doc(24576);
+  bool appendMode = false;
+
+  if (SPIFFS.exists(filename)) {
+    File file = SPIFFS.open(filename, FILE_READ);
+    if (file) {
+      DeserializationError error = deserializeJson(doc, file);
+      file.close();
+      if (!error && doc.containsKey("startTime")) {
+        unsigned long fileStartTime = doc["startTime"].as<unsigned long>();
+        if (fileStartTime == blockStart) {
+          appendMode = true;
+        }
+      }
+    }
+  }
+
+  if (!appendMode) {
+    doc["startTime"] = blockStart;
+    doc.createNestedArray("tempHistory");
+    doc.createNestedArray("tempTimestamps");
+    doc.createNestedArray("voltageHistory");
+    doc.createNestedArray("voltageTimestamps");
+    doc.createNestedArray("pumpHzHistory");
+    doc.createNestedArray("pumpHzTimestamps");
+    doc.createNestedArray("outsideTempHistory");
+    doc.createNestedArray("outsideTempTimestamps");
+    // Initialize hourly fuel arrays
+    doc.createNestedArray("hourlyFuelGallons");
+    doc.createNestedArray("hourlyFuelTimestamps");
+  }
+
+  JsonArray tempArray = doc["tempHistory"];
+  JsonArray tempTimeArray = doc["tempTimestamps"];
+  JsonArray voltArray = doc["voltageHistory"];
+  JsonArray voltTimeArray = doc["voltageTimestamps"];
+  JsonArray pumpHzArray = doc["pumpHzHistory"];
+  JsonArray pumpHzTimeArray = doc["pumpHzTimestamps"];
+  JsonArray outsideTempArray = doc["outsideTempHistory"];
+  JsonArray outsideTempTimeArray = doc["outsideTempTimestamps"];
+  JsonArray hourlyFuelArray = doc["hourlyFuelGallons"];
+  JsonArray hourlyTimeArray = doc["hourlyFuelTimestamps"];
+
+  int validEntries = 0;
+  for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
+    int idx = (tempIndex - TEMP_HISTORY_SIZE + i + TEMP_HISTORY_SIZE) % TEMP_HISTORY_SIZE;
+    if (tempHistory[idx] > -100 && tempTimestamps[idx] > 0 &&
+        voltageHistory[idx] >= 0 && pumpHzHistory[idx] >= 0 &&
+        !isnan(outsideTempHistory[idx]) &&
+        tempTimestamps[idx] >= blockStart && tempTimestamps[idx] < blockEnd) {
+      bool exists = false;
+      for (size_t j = 0; j < tempTimeArray.size(); j++) {
+        if (tempTimeArray[j].as<unsigned long>() == tempTimestamps[idx]) {
+          exists = true;
+          break;
+        }
+      }
+      if (!exists) {
+        tempArray.add(tempHistory[idx]);
+        tempTimeArray.add(tempTimestamps[idx]);
+        voltArray.add(voltageHistory[idx]);
+        voltTimeArray.add(voltageTimestamps[idx]);
+        pumpHzArray.add(pumpHzHistory[idx]);
+        pumpHzTimeArray.add(pumpHzTimestamps[idx]);
+        outsideTempArray.add(outsideTempHistory[idx]);
+        outsideTempTimeArray.add(outsideTempTimestamps[idx]);
+        validEntries++;
+      }
+    }
+  }
+
+  // Save all hourly fuel data directly from memory, not via serialization filter
+  for (int i = 0; i < HOURLY_FUEL_SIZE; i++) {
+    int realIndex = (hourlyFuelIndex - HOURLY_FUEL_SIZE + i + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE;
+    if (hourlyFuelTimestamps[realIndex] > 0 && 
+        hourlyFuelTimestamps[realIndex] >= blockStart && hourlyFuelTimestamps[realIndex] < blockEnd) {
+      bool exists = false;
+      for (size_t j = 0; j < hourlyTimeArray.size(); j++) {
+        if (hourlyTimeArray[j].as<unsigned long>() == hourlyFuelTimestamps[realIndex]) {
+          exists = true;
+          if (hourlyFuelArray[j].as<float>() != hourlyFuelGallons[realIndex]) {
+            hourlyFuelArray[j] = hourlyFuelGallons[realIndex]; // Update if different
+          }
+          break;
+        }
+      }
+      if (!exists) {
+        hourlyFuelArray.add(hourlyFuelGallons[realIndex]);
+        hourlyTimeArray.add(hourlyFuelTimestamps[realIndex]);
+      }
+    }
+  }
+  // Update accumulator
+  if (doc.containsKey("hourlyFuelAccumulator")) {
+    if (doc["hourlyFuelAccumulator"].as<float>() != hourlyFuelAccumulator) {
+      doc["hourlyFuelAccumulator"] = hourlyFuelAccumulator;
+    }
+  } else {
+    doc["hourlyFuelAccumulator"] = hourlyFuelAccumulator;
+  }
+  Serial.println("Saved hourly fuel entries: " + String(hourlyFuelArray.size()));
+
+  if (validEntries > 0 || hourlyFuelArray.size() > 0) {
+    File file = SPIFFS.open(filename, FILE_WRITE);
+    if (!file) {
+      saveError = "Failed to open " + filename + " for writing";
+      Serial.println(saveError);
+      return;
+    }
+
+    size_t bytesWritten = serializeJson(doc, file);
+    file.close();
+
+    if (bytesWritten == 0) {
+      saveError = "Failed to write JSON to " + filename;
+      Serial.println(saveError);
+      SPIFFS.remove(filename);
+    } else {
+      Serial.println("Wrote " + String(bytesWritten) + " bytes to " + filename + " with " + 
+                     String(tempArray.size()) + " temp entries, " + 
+                     String(hourlyFuelArray.size()) + " hourly fuel entries");
+      saveError = "Saved successfully";
+      currentFileIndex = blockIndex;
+      preferences.putInt("currentFileIndex", currentFileIndex);
+    }
+  } else {
+    Serial.println("No new data to save, skipping write to " + filename);
+    saveError = "No changes to save";
   }
 }
 
-void saveTempHistory() {
+// Update loadHistoryFromSPIFFS to include outdoor temperature
+bool loadHistoryFromSPIFFS() {
+  Serial.println("Loading history from SPIFFS");
+
   for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
-    int realIndex = (tempIndex + i) % TEMP_HISTORY_SIZE;
-    char keyTemp[20];
-    char keyTime[20];
-    snprintf(keyTemp, sizeof(keyTemp), "temp_%d", i);
-    snprintf(keyTime, sizeof(keyTime), "time_%d", i);
-    
-    preferences.putFloat(keyTemp, tempHistory[realIndex]);
-    preferences.putULong(keyTime, tempTimestamps[realIndex]);
+    tempHistory[i] = -200.0;
+    tempTimestamps[i] = 0;
+    voltageHistory[i] = NAN;
+    voltageTimestamps[i] = 0;
+    pumpHzHistory[i] = NAN;
+    pumpHzTimestamps[i] = 0;
+    outsideTempHistory[i] = NAN;
+    outsideTempTimestamps[i] = 0;
   }
-  Serial.println("Temp history saved");
+  tempIndex = voltageIndex = pumpHzIndex = outsideTempIndex = 0;
+
+  for (int i = 0; i < HOURLY_FUEL_SIZE; i++) {
+    hourlyFuelGallons[i] = 0.0;
+    hourlyFuelTimestamps[i] = 0;
+  }
+  hourlyFuelIndex = 0;
+  hourlyFuelAccumulator = 0.0;
+
+  struct HistoryEntry {
+    float temp;
+    unsigned long tempTime;
+    float voltage;
+    unsigned long voltTime;
+    float pumpHz;
+    unsigned long pumpHzTime;
+    float outsideTemp;
+    unsigned long outsideTempTime;
+  };
+  HistoryEntry* entries = (HistoryEntry*)malloc(TEMP_HISTORY_SIZE * sizeof(HistoryEntry));
+  if (!entries) {
+    Serial.println("Failed to allocate memory for loading history");
+    return false;
+  }
+  int totalEntries = 0;
+
+  unsigned long currentTime = timeClient.getEpochTime();
+  const unsigned long LAST_12_HOURS = 43200UL;
+  const unsigned long LAST_24_HOURS = 86400UL;
+  const unsigned long MIN_VALID_EPOCH = 1710000000UL;
+
+  for (int i = 0; i < HISTORY_FILES; i++) {
+    String filename = "/history_" + String(i) + ".json";
+    if (!SPIFFS.exists(filename)) {
+      Serial.println("File " + filename + " does not exist, skipping");
+      continue;
+    }
+
+    File file = SPIFFS.open(filename, FILE_READ);
+    if (!file) {
+      Serial.println("Failed to open " + filename);
+      continue;
+    }
+
+    DynamicJsonDocument doc(24576);
+    DeserializationError error = deserializeJson(doc, file);
+    file.close();
+
+    if (error) {
+      Serial.println("Failed to parse " + filename + ": " + error.c_str());
+      continue;
+    }
+
+    JsonArray tempArray = doc["tempHistory"];
+    JsonArray tempTimeArray = doc["tempTimestamps"];
+    JsonArray voltArray = doc["voltageHistory"];
+    JsonArray voltTimeArray = doc.containsKey("voltageTimestamps") ? doc["voltageTimestamps"] : JsonArray();
+    JsonArray pumpHzArray = doc.containsKey("pumpHzHistory") ? doc["pumpHzHistory"] : JsonArray();
+    JsonArray pumpHzTimeArray = doc.containsKey("pumpHzTimestamps") ? doc["pumpHzTimestamps"] : JsonArray();
+    JsonArray outsideTempArray = doc.containsKey("outsideTempHistory") ? doc["outsideTempHistory"] : JsonArray();
+    JsonArray outsideTempTimeArray = doc.containsKey("outsideTempTimestamps") ? doc["outsideTempTimestamps"] : JsonArray();
+    JsonArray hourlyFuelArray = doc.containsKey("hourlyFuelGallons") ? doc["hourlyFuelGallons"] : JsonArray();
+    JsonArray hourlyTimeArray = doc.containsKey("hourlyFuelTimestamps") ? doc["hourlyFuelTimestamps"] : JsonArray();
+    hourlyFuelAccumulator = doc.containsKey("hourlyFuelAccumulator") ? doc["hourlyFuelAccumulator"].as<float>() : hourlyFuelAccumulator;
+
+    size_t maxEntries = tempArray.size();
+    for (size_t j = 0; j < maxEntries && totalEntries < TEMP_HISTORY_SIZE; j++) {
+      if (!tempArray[j].is<float>() || !tempTimeArray[j].is<unsigned long>()) {
+        continue;
+      }
+      unsigned long timestamp = tempTimeArray[j].as<unsigned long>();
+      if (timestamp < MIN_VALID_EPOCH) continue;
+
+      entries[totalEntries].temp = tempArray[j].as<float>();
+      entries[totalEntries].tempTime = timestamp;
+      entries[totalEntries].voltage = (j < voltArray.size() && voltArray[j].is<float>()) ? voltArray[j].as<float>() : NAN;
+      entries[totalEntries].voltTime = (j < voltTimeArray.size() && voltTimeArray[j].is<unsigned long>()) ? voltTimeArray[j].as<unsigned long>() : timestamp;
+      entries[totalEntries].pumpHz = (j < pumpHzArray.size() && pumpHzArray[j].is<float>()) ? pumpHzArray[j].as<float>() : NAN;
+      entries[totalEntries].pumpHzTime = (j < pumpHzTimeArray.size() && pumpHzTimeArray[j].is<unsigned long>()) ? pumpHzTimeArray[j].as<unsigned long>() : timestamp;
+      entries[totalEntries].outsideTemp = (j < outsideTempArray.size() && outsideTempArray[j].is<float>()) ? outsideTempArray[j].as<float>() : NAN;
+      entries[totalEntries].outsideTempTime = (j < outsideTempTimeArray.size() && outsideTempTimeArray[j].is<unsigned long>()) ? outsideTempTimeArray[j].as<unsigned long>() : timestamp;
+      if (entries[totalEntries].temp > -100) totalEntries++;
+    }
+
+    size_t hourlyEntries = hourlyFuelArray.size();
+    if (hourlyEntries > 0) {
+      Serial.println("Loading " + String(hourlyEntries) + " hourly fuel entries from " + filename);
+      for (size_t j = 0; j < hourlyEntries && j < HOURLY_FUEL_SIZE; j++) {
+        if (hourlyFuelArray[j].is<float>() && hourlyTimeArray[j].is<unsigned long>()) {
+          unsigned long timestamp = hourlyTimeArray[j].as<unsigned long>();
+          if (timestamp >= MIN_VALID_EPOCH && (currentTime - timestamp) <= LAST_24_HOURS) {
+            int idx = (hourlyFuelIndex + j) % HOURLY_FUEL_SIZE;
+            hourlyFuelGallons[idx] = hourlyFuelArray[j].as<float>();
+            hourlyFuelTimestamps[idx] = timestamp;
+            hourlyFuelIndex = (idx + 1) % HOURLY_FUEL_SIZE;
+            Serial.printf("Loaded hourly fuel: %.6f gallons at %lu\n", hourlyFuelGallons[idx], timestamp);
+          }
+        }
+      }
+      Serial.println("Loaded " + String(hourlyFuelIndex) + " total hourly fuel entries");
+    }
+  }
+
+  if (totalEntries > 0) {
+    qsort(entries, totalEntries, sizeof(HistoryEntry),
+          [](const void* a, const void* b) -> int {
+            const HistoryEntry* ea = (const HistoryEntry*)a;
+            const HistoryEntry* eb = (const HistoryEntry*)b;
+            return (ea->tempTime > eb->tempTime) - (ea->tempTime < eb->tempTime);
+          });
+
+    int filteredEntries = 0;
+    for (int i = 0; i < totalEntries; i++) {
+      if (currentTime - entries[i].tempTime <= LAST_12_HOURS) {
+        if (filteredEntries < TEMP_HISTORY_SIZE) {
+          entries[filteredEntries] = entries[i];
+          filteredEntries++;
+        }
+      }
+    }
+
+    if (filteredEntries > 0) {
+      for (int i = 0; i < filteredEntries; i++) {
+        int idx = i % TEMP_HISTORY_SIZE;
+        tempHistory[idx] = entries[i].temp;
+        tempTimestamps[idx] = entries[i].tempTime;
+        voltageHistory[idx] = entries[i].voltage;
+        voltageTimestamps[idx] = entries[i].voltTime;
+        pumpHzHistory[idx] = entries[i].pumpHz;
+        pumpHzTimestamps[idx] = entries[i].pumpHzTime;
+        outsideTempHistory[idx] = entries[i].outsideTemp;
+        outsideTempTimestamps[idx] = entries[i].outsideTempTime;
+      }
+      tempIndex = voltageIndex = pumpHzIndex = outsideTempIndex = filteredEntries % TEMP_HISTORY_SIZE;
+    }
+  }
+
+  free(entries);
+  bool success = totalEntries > 0 || hourlyFuelIndex > 0;
+  if (success) {
+    Serial.println("Loaded history successfully: " + String(totalEntries) + " temp/volt/pumpHz/outdoor entries, " +
+                   String(hourlyFuelIndex) + " hourly fuel entries, Accumulator: " + String(hourlyFuelAccumulator));
+  } else {
+    Serial.println("No valid history data loaded from SPIFFS");
+  }
+  return success;
 }
 
 void end() {

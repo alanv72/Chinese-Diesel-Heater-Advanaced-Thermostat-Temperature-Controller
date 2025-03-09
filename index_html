@@ -74,13 +74,98 @@
     button:hover, input[type="checkbox"] + label:hover {
       background-color: #e67e22;
     }
-    #status {
-      background: rgba(0, 0, 0, 0.5);
-      padding: 20px;
-      border-radius: 10px;
-      margin: 20px auto;
-      max-width: 500px;
+
+    /* Style for the status banner */
+    #statusBanner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      color: #f39c12;
+      font-size: 12px;
+      padding: 5px 0;
+      text-align: center;
+      z-index: 1000;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 5px; /* Space between items */
     }
+
+    /* Style for each label-value pair */
+    .status-item {
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap; /* Prevent wrapping within each item */
+      margin: 0 5px; /* Space between items */
+      min-height: 16px; /* Ensure consistent minimum height for readability */
+    }
+
+    /* Style for labels */
+    .status-item .label {
+      font-weight: bold;
+      margin-right: 0px; /* Space between label and value */
+    }
+
+    /* Style for values */
+    .status-item .value {
+      margin-left: 2px; /* Space between label and value */
+    }
+
+    /* Responsive adjustments for tablets (768px and below) */
+    @media screen and (max-width: 768px) {
+      #statusBanner {
+        font-size: 10px; /* Smaller text on tablets */
+        padding: 3px 0;
+      }
+
+      .status-item {
+        margin: 0 2px; /* Reduce margin on tablets */
+        min-height: 14px; /* Adjust minimum height for tablets */
+      }
+    }
+
+    /* Responsive adjustments for mobile (480px and below) */
+    @media screen and (max-width: 480px) {
+      #statusBanner {
+        font-size: 10px; /* Consistent font size for all items on mobile */
+        padding: 2px 0; /* Reduce padding for compactness */
+        flex-direction: row; /* Keep horizontal layout, but allow wrapping */
+        justify-content: center; /* Center items horizontally */
+        align-items: center; /* Align items vertically in the center */
+        gap: 2px; /* Tighter spacing on mobile */
+      }
+
+      .status-item {
+        margin: 0 2px; /* Tighter margin on mobile */
+        min-height: 14px; /* Consistent minimum height for all rows */
+        font-size: 10px; /* Consistent font size for all items */
+      }
+
+      /* Remove or adjust the nth-child rule to avoid progressive shrinking */
+      .status-item:nth-child(n+10) {
+        font-size: 10px; /* Keep font size consistent, no reduction */
+        min-height: 14px; /* Match other items for consistent row height */
+      }
+    }
+
+    /* Very small screens (e.g., < 320px) */
+    @media screen and (max-width: 320px) {
+      #statusBanner {
+        font-size: 8px; /* Smaller for tiny screens */
+        padding: 1px 0; /* Minimal padding */
+        gap: 1px; /* Tighter spacing */
+      }
+
+      .status-item {
+        margin: 0 1px; /* Minimal margin */
+        min-height: 12px; /* Slightly smaller minimum height for tiny screens */
+        font-size: 8px; /* Consistent font size for all items */
+      }
+    }
+
     #currentSetTemp {
       position: relative;
       color: #f1c40f;
@@ -103,6 +188,7 @@
       border: 1px solid #f39c12;
       padding: 8px;
       text-align: left;
+      background-color: darkred;
     }
     th {
       background-color: #d35400;
@@ -149,6 +235,15 @@
       cursor: pointer;
       font-size: 11.5px;
       border-radius: 4px;
+    }
+    button#heateron {
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 11.5px;
+      border-radius: 4px;
+      position: fixed;
+      left: 7px;
+      top: 140px;  
     }
     #thermostatControl input[type="checkbox"]:checked + label {
       background-color: #e67e22; /* Active state color */
@@ -228,9 +323,39 @@
       min-width: 50px;
       min-height: 20px;
     }
+    #setTankButton {
+      background-color: #d35400;
+      border: none;
+      color: white;
+      padding: 5px 10px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background-color 0.3s;
+      min-width: 50px;
+      min-height: 20px;
+    }
+    #setZipButton {
+      background-color: #d35400;
+      border: none;
+      color: white;
+      padding: 5px 10px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background-color 0.3s;
+      min-width: 50px;
+      min-height: 20px;
+    }
     #heatererror {
       position: fixed; /* or absolute, depending on if you want it relative to viewport or document */
-      top: 20%; /* Position the top edge at 50% of the viewport height */
+      top: 15%; /* Position the top edge at 50% of the viewport height */
       left: 50%; /* Position the left edge at 50% of the viewport width */
       transform: translate(-50%, -50%); /* Shift it back by half its width and height */
       width: 200px; /* Fixed width as specified */
@@ -266,6 +391,135 @@
       display: none; /* Initially hidden */
       z-index: 1001;
     }
+    /* Updated fan control gauge styles */
+  .fan-section {
+    margin-top: 10px;
+    text-align: center; /* Center the entire section */
+  }
+
+  .fan-controls-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .fan-control-group {
+    display: flex;
+    justify-content: center;
+    gap: 22px; /* Space between gauges */
+    margin-bottom: 0;
+  }
+
+  .fan-control {
+    position: relative;
+    width: 132px; /* Slightly larger gauge */
+    height: 110px; /* Slightly larger height */
+    margin: 0;
+    z-index: 1; /* Ensure the container is behind the canvas but allows interaction */
+
+  }
+
+  .fan-control canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10; /* Ensure the canvas is on top and fully clickable */
+  }
+
+  .gauge-value {
+    position: absolute;
+    bottom: 20px; /* Slightly lower for larger text */
+    width: 100%;
+    text-align: center;
+    font-size: 16px; /* Larger percentage text */
+    color: #FFA500; /* Match the orange theme */
+    z-index: 5; /* Below the canvas but above other elements */
+
+  }
+
+  .fan-label {
+    position: absolute;
+    bottom: 0px; /* Slightly lower for larger text */
+    width: 100%;
+    text-align: center;
+    font-size: 16px; /* Larger label text */
+    color: #FFA500; /* Match the orange theme */
+    z-index: 5; /* Below the canvas but above other elements */
+  }
+  .fan-label-and-button {
+    position: absolute;
+    bottom: 11px;
+    width: 100%;
+    display: flex;
+    justify-content: center; /* Center the label and button horizontally */
+    gap: 5px; /* Small gap between label and button */
+    z-index: 5;
+  }
+  .fanbut {
+    z-index: 11;
+  }
+  .fan-toggle {
+    padding: 4px 6px; /* Slightly larger button */
+    font-size: 12px; /* Larger button text */
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: #FFA500; /* Orange button background */
+    color: #fff;
+    transition: background-color 0.3s;
+    z-index: 1; /* Ensure buttons are below the canvas but clickable */
+  }
+
+  .fan-toggle.active {
+    background-color: #FFA500; /* Active (Auto) state */
+  }
+
+  .fan-toggle:not(.active) {
+    background-color: #FF8C00; /* Inactive (Manual) state, slightly darker orange */
+  }
+
+  .fan-toggle:hover {
+    background-color: #FF4500; /* Darker orange on hover */
+  }
+
+  #currentSetTemp {
+    font-size: 30px;
+    font-weight: bold;
+  }
+  #currentSetTemp.adjusting::before {
+    content: "Adjusting to: ";
+    animation: blink 1s infinite; /* Slow blink animation */
+  }
+  #currentSetTemp:not(.adjusting)::before {
+    content: "";
+  }
+    @keyframes blink {
+        0% { opacity: 1; }    /* Fully visible */
+        50% { opacity: 0.5; }   /* Half transparent */
+        100% { opacity: 1; }  /* Back to fully visible */
+  }
+      .delete-btn {
+      background-color: #c0392b; /* Red for delete */
+      border: none;
+      color: white;
+      padding: 5px 10px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 12px;
+      margin: 2px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background-color 0.3s;
+    }
+    .delete-btn:hover {
+      background-color: #e74c3c; /* Lighter red on hover */
+    }
+    #delete {
+      text-align: center;
+    }
   </style>
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -274,25 +528,26 @@
 </head>
 <body>
 <button id="shutdownHeater" onclick="shutdownHeater()">Shut Down Heater</button>
-<div id="statusBanner" style="position: fixed; top: 0; left: 0; width: 100%; background: rgba(0, 0, 0, 0.7); color: #f39c12; font-size: 12px; padding: 5px 0; text-align: center; z-index: 1000;">
-  <span id="uptime" style="margin: 0 5px;">Up: <span></span></span>
-  <span id="currentTime" style="margin: 0 5px;"><span></span></span>
-  <span id="currentDate" style="margin: 0 5px;"><span></span></span>
-  <span style="margin: 0 5px;">Temp: <span id="currentTemp">0</span></span>
-  <span style="margin: 0 5px;">State: <span id="heaterState">Unknown</span></span>
-  <span style="margin: 0 5px;">Meter: <span id="runtime">0</span></span>
-  <span style="margin: 0 5px;">Fan: <span id="fanSpeed">0</span></span>
-  <span style="margin: 0 5px;">Volt: <span id="supplyVoltage">0.0</span></span>
-  <span style="margin: 0 5px;">Int Temp: <span id="heaterInternalTemp">0</span></span>
-  <span style="margin: 0 5px;">Glow: <span id="glowPlugCurrent">0</span> A</span>
-  <span style="margin: 0 5px;">Pump: <span id="pumpHz">0</span> Hz</span>
-  <span style="margin: 0 5px;">Glow Hrs: <span id="glowPlugHours">0.00</span></span>
-  <span style="margin: 0 5px;">Wall Temp: <span id="walltemp">0</span></span>
-  <span style="margin: 0 5px;">Duct: <span id="ductfan"></span></span>
-  <span style="margin: 0 5px;">Wall: <span id="wallfan"></span></span>
-  <span style="margin: 0 5px;">Avg: <span id="rollingAvgGPH">0.00</span></span>
-  <span style="margin: 0 5px;">Est Run: <span id="rollingRuntimeHours">0</span></span>
-  <span id="voltageWarning" style="margin: 0 5px;"></span>
+<div id="statusBanner" style="position: fixed; top: 0; left: 0; width: 100%; background: rgba(0, 0, 0, 0.7); color: #f39c12; font-size: 12px; padding: 5px 0; text-align: center; z-index: 1000; display: flex; flex-wrap: wrap; justify-content: center; align-items: center;">
+  <div class="status-item"><span class="label">State:</span><span id="heaterState" class="value">Unknown</span></div>
+  <div class="status-item"><span class="label">Temp:</span><span id="currentTemp" class="value">0</span></div>
+  <div class="status-item"><span class="label">Wall Temp:</span><span id="walltemp" class="value">0</span></div>
+  <div class="status-item"><span class="label">Int Temp:</span><span id="heaterInternalTemp" class="value">0</span></div>
+  <div class="status-item"><span class="label">Fan:</span><span id="fanSpeed" class="value">0</span></div>
+  <div class="status-item"><span class="label">Est Run:</span><span id="rollingRuntimeHours" class="value">0</span></div>
+  <div class="status-item"><span class="label">Duct:</span><span id="ductfan" class="value"></span></div>
+  <div class="status-item"><span class="label">Wall:</span><span id="wallfan" class="value"></span></div>
+  <div class="status-item"><span class="label">Volt:</span><span id="supplyVoltage" class="value">0.0</span></div>
+  <div class="status-item"><span class="label">Pump:</span><span id="pumpHz" class="value">0</span> Hz</div>
+  <div class="status-item"><span class="label">Glow:</span><span id="glowPlugCurrent" class="value">0</span> A</div>
+  <div class="status-item"><span class="label">Avg:</span><span id="rollingAvgGPH" class="value">0.00</span></div>
+  <div class="status-item"><span class="label">Meter:</span><span id="runtime" class="value">0</span></div>
+  <div class="status-item"><span class="label">Glow Hrs:</span><span id="glowPlugHours" class="value">0.00</span></div>
+  <div class="status-item"><span class="label">Up:</span><span id="uptime" class="value"><span></span></span></div>
+  <div class="status-item"><span class="label">Time:</span><span id="currentTime" class="value"><span></span></span></div>
+  <div class="status-item"><span class="label">Date:</span><span id="currentDate" class="value"><span></span></span></div>
+  <div class="status-item"><span class="label">Outdoor:</span><span id="outdoor" class="value"><span></span></span></div>
+  <div class="status-item"><span class="label"></span><span id="voltageWarning" class="value"></span></div>
 </div>
   <!-- Fuel Gauge -->
   <div style="text-align: center;" class="gauge">
@@ -304,21 +559,24 @@
     <div id="thermostatControl">
     <input type="checkbox" id="thermostatEnable" onchange="toggleThermostat(this.checked)">
     <label for="thermostatEnable" id="thermostatLabel">Thermostat Off</label>
+    <button id="heateron" onclick="turnHeaterOn()">Start Heater</button>
   </div>
   <div id="heatererror">
+    <div id="tempWarn" style="display:none;"></div>
       <span id="heatererrortxt"></span>
   </div>
-  <h1>Heater Control</h1>
+  <h2>Heater Controls</h2>
+  <div style="text-align: center;"></div>
   <div id="message"></div>
-  <div id="currentSetTemp">Set Temperature: <span id="setTemperatureDisplay">60</span>°F<br>
+  <div id="currentSetTemp"><span id="setTemperatureDisplay">60</span>°F<br>
     <input type="range" min="46" max="95" value="60" class="slider" id="tempSlider">
   </div>
   
   <div style="text-align: center;">
-    <button onclick="setTemp(46)">Frost</button>
-    <button onclick="setTemp(60)">Eco</button>
-    <button onclick="setTemp(65)">Sleep</button>
-    <button onclick="setTemp(71)">Comfort</button>
+    <button onclick="setTemp(46, this)">Frost</button>
+    <button onclick="setTemp(61, this)">Eco</button>
+    <button onclick="setTemp(66, this)">Sleep</button>
+    <button onclick="setTemp(72, this)">Comfort</button>
   </div>
   <div style="text-align: center;" id="prime">
     <button id="primeStart" onclick="primePump('start')">Start Pump Prime</button>
@@ -328,12 +586,33 @@
     <input type="checkbox" id="frostMode" onchange="toggleFrostMode(this.checked)">
     <label for="frostMode">Frost Mode</label>
   </div>
-  <div style="text-align: center;" class="walltemp">
-    <h2>Wall Fan Control</h2>
-    <p>Deta: <span id="currentWallTempTrigger">0</span>°F  
-    <input type="number" id="wallTempTriggerInput" min="-1" max="10" step="1" value="">
-    <button id="walltempbut" onclick="setWallTempTrigger()">Update</button></p>
+<div style="text-align: center;" class="walltemp">
+<div class="fan-section">
+  <h3 style="color: #FFA500; margin-bottom: 5px;">Fan Control</h3>
+  <p id="fanStatus" style="display: none; color: #FF0000; font-size: 16px; margin-bottom: 5px;">Fans disabled due to low voltage</p>
+  
+  <div class="fan-controls-container">
+    <div class="fan-control-group">
+    <div class="fanbut" id="fanbut"><button id="ductFanControlToggle" class="fan-toggle active" onclick="toggleFanControl('duct')">Auto</button></div>
+      <div class="fan-control" id="ductFanGaugeContainer">
+        <canvas id="ductFanGauge" width="132" height="110"></canvas>
+        <div id="ductFanGaugeValue" class="gauge-value">0%</div>
+        <div class="fan-label">Duct</div>
+      </div>
+    <div class="fanbut" id="fanbut"><button id="wallFanControlToggle" class="fan-toggle active" onclick="toggleFanControl('wall')">Auto</button></div>
+      <div class="fan-control" id="wallFanGaugeContainer">
+        <canvas id="wallFanGauge" width="132" height="110"></canvas>
+        <div id="wallFanGaugeValue" class="gauge-value">0%</div>
+        <div class="fan-label">Wall</div>
+      </div>
+    </div>
   </div>
+</div>
+    <p>Wall Delta: <span id="currentWallTempTrigger">0</span>°F  
+    <input type="number" id="wallTempTriggerInput" min="-1" max="10" step="1" value="">
+    <button id="walltempbut" onclick="setWallTempTrigger()">Update</button>
+  </p>
+</div>
   <div style="text-align: center;" class="tank">
 
     <h2>Fuel Consumption</h2>
@@ -346,10 +625,19 @@
     
     <h2>Tank Management</h2>
     <p>Current Tank Size: <span id="currentTankSize">0</span></p>
-    <input type="number" id="tankSizeInput" min="0" step="0.1"><button onclick="setTankSize()">Set Tank Size</button>
+    <input type="number" id="tankSizeInput" min="0" step="0.1" maxlength=4 placeholder="Size in Gal"><button id="setTankButton"onclick="setTankSize()">Set Tank Size</button>
     
   </div>
+  <div style="text-align: center;" class="weather">
+    <div id="manualZipInput" style="display: none;">
+      <p id="zipErrorMessage" style="color: red; display: none; background: black;"></p>
+      Current ZIP Code: <span id="currentZipCode"></span>
+      <input type="text" id="zipCodeInput" minlength="5" maxlength="5" placeholder="Enter 5-digit ZIP">
+      <button id="setZipButton">Set ZIP Code</button> <!-- No onclick -->
+    </div>
+  </div>
   <canvas id="tempChart" width="400" height="200"></canvas>
+  <canvas id="hourlyFuelChart" width="400" height="150"></canvas>
   <canvas id="voltageChart" width="400" height="150"></canvas>
   <div class="file-area">
     <h2>File Upload</h2>
@@ -367,505 +655,13 @@
     <button id="listFilesBtn">List Files</button>
     <table id="fileTable">
       <thead>
-        <tr><th>Name</th><th>Size</th></tr>
+        <tr><th>Name</th><th>Size</th><th>Action</th></tr>
       </thead>
       <tbody id="fileListBody"></tbody>
     </table>
   </div>
 
-<script>
-const ML_TO_GALLON = 0.000264172; // Conversion factor from ml to gallons
-
-function formatUptime(seconds) {
-  let days = Math.floor(seconds / (24 * 3600));
-  seconds %= (24 * 3600);
-  let hours = Math.floor(seconds / 3600);
-  seconds %= 3600;
-  let minutes = Math.floor(seconds / 60);
-
-  return `${days}:${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-}
-
-// Functions that need to be globally accessible for inline event handlers
-function setTemp(value) {
-  var xhr = new XMLHttpRequest();
-  xhr.open("POST", "/settemp");
-  xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-  xhr.send("temp=" + value);
-  
-  // Update the slider value
-  var tempSlider = document.getElementById("tempSlider");
-  if (tempSlider) {
-    tempSlider.value = value;
-  }
-  
-  // Update the display
-  updateTempDisplay(value);
-}
-
-function updateTempDisplay(value) {
-  var display = document.getElementById("setTemperatureDisplay");
-  if (display) display.textContent = value;
-  document.getElementById("currentSetTemp").querySelector("span").textContent = value;
-}
-
-function setWallTempTrigger() {
-    var triggerInput = document.getElementById("wallTempTriggerInput");
-    if (triggerInput) {
-        var triggerValue = triggerInput.value;
-        if (!isNaN(triggerValue) && triggerValue >= -1 && triggerValue <= 10) {
-            var xhr = new XMLHttpRequest();
-            xhr.open("POST", "/setWallTempTrigger");
-            xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-            xhr.send("trigger=" + triggerValue);
-            document.getElementById("currentWallTempTrigger").textContent = triggerValue;
-        }
-    }
-}
-
-function toggleFrostMode(enabled) {
-  var xhr = new XMLHttpRequest();
-  xhr.open("POST", "/frostMode");
-  xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-  xhr.send("enable=" + enabled);
-}
-
-function toggleThermostat(enabled) {
-  var label = document.getElementById("thermostatLabel");
-  var newState = enabled;
-  console.log("Toggling thermostat. New state: " + newState);
-
-  var xhr = new XMLHttpRequest();
-  xhr.open("POST", "/toggleThermostat");
-  xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-  xhr.send("enable=" + newState);
-
-  xhr.onload = function() {
-    if (xhr.status === 200) {
-      console.log("Thermostat toggle request successful");
-      // Update label text based on new state
-      label.textContent = newState ? "Thermostat On" : "Thermostat Off";
-      label.classList.toggle("active", newState);
-      document.getElementById("thermostatEnable").checked = newState; // Sync checkbox state
-    } else {
-      console.error("Failed to toggle thermostat. Status: " + xhr.status);
-      // Revert the checkbox if the toggle failed
-      document.getElementById("thermostatEnable").checked = !newState;
-    }
-  };
-
-  xhr.onerror = function() {
-    console.error("Network error while toggling thermostat");
-    // Revert the checkbox on error
-    document.getElementById("thermostatEnable").checked = !newState;
-  };
-}
-
-function primePump(action) {
-  var xhr = new XMLHttpRequest();
-  xhr.open("POST", "/primepump", true);
-  xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-  xhr.send("action=" + action);
-}
-
-function setTankSize() {
-  var tankSizeInput = document.getElementById("tankSizeInput");
-  if (tankSizeInput) {
-    var tankSize = tankSizeInput.value;
-    if (!isNaN(tankSize) && tankSize > 0) {
-      var xhr = new XMLHttpRequest();
-      xhr.open("POST", "/setTankSize");
-      xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-      xhr.send("size=" + tankSize);
-      var currentTankSize = document.getElementById("currentTankSize");
-      if (currentTankSize) currentTankSize.textContent = tankSize;
-    }
-  }
-}
-
-function resetTank() {
-  var xhr = new XMLHttpRequest();
-  xhr.open("POST", "/resetTank");
-  xhr.send();
-}
-
-function shutdownHeater() {
-  var xhr = new XMLHttpRequest();
-  xhr.open("POST", "/shutdownHeater"); // Assuming this is your endpoint
-  xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-  xhr.onload = function() {
-    if (xhr.status === 200) {
-      console.log("Heater shutdown command sent");
-      // Optionally, update UI to reflect this action or show a status message
-      document.getElementById("message").textContent = "Heater shutdown command sent";
-      document.getElementById("message").style.display = "inline-block";
-    }
-  };
-  xhr.send();
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-  var tempSlider = document.getElementById("tempSlider");
-  var lastUpdateTime = 0; // Timestamp for the last heater_update update
-  var intervalId; // For managing the interval
-
-  // Custom locale for date-fns
-  const customLocale = {
-    localize: {
-      month: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-      day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-    },
-    formatLong: {
-      date: () => 'MM/dd/yyyy',
-      time: () => 'HH:mm:ss',
-      dateTime: () => 'MM/dd/yyyy HH:mm:ss'
-    }
-  };
-
-  // Chart initialization
-  var ctx = document.getElementById('tempChart').getContext('2d');
-  var tempChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [], // will hold the timestamps
-      datasets: [{
-        label: 'Temperature (°F)',
-        data: [], // will hold the temperatures
-        fill: false,
-        borderColor: 'orange',
-        tension: 0.1
-      }]
-    },
-    options: {
-      scales: {
-        x: {
-          type: 'time',
-          time: {
-            unit: 'minute',
-            displayFormats: {
-              minute: 'HH:mm'
-            },
-            tooltipFormat: 'HH:mm'
-          },
-          adapters: {
-            date: {
-              locale: customLocale // Your custom locale configuration
-            }
-          },
-          title: {
-            display: false,
-            text: 'Time'
-          }
-        },
-        y: {
-          title: {
-            display: false,
-            text: 'Temperature (°F)',
-            color: 'white'
-          }
-        }
-      },
-      plugins: {
-        legend: {
-          labels: {
-            color: 'grey' // Legend text color to white
-          }
-        }
-      }
-    },
-    plugins: [{
-      beforeDraw: (chart) => {
-        const ctx = chart.canvas.getContext('2d');
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-over';
-        ctx.fillStyle = 'lightyellow'; // Light yellow background
-        ctx.fillRect(0, 0, chart.width, chart.height);
-        ctx.restore();
-      }
-    }]
-  });
-
-  // Voltage Chart initialization (new)
-  var ctxVoltage = document.getElementById('voltageChart').getContext('2d');
-  var voltageChart = new Chart(ctxVoltage, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'Voltage (V)',
-        data: [],
-        fill: false,
-        borderColor: 'blue',
-        tension: 0.1
-      }]
-    },
-    options: {
-      scales: {
-        x: {
-          type: 'time',
-          time: {
-            unit: 'minute',
-            displayFormats: {
-              minute: 'HH:mm'
-            },
-            tooltipFormat: 'HH:mm'
-          },
-          adapters: {
-            date: {
-              locale: customLocale
-            }
-          },
-          title: {
-            display: false,
-            text: 'Time'
-          }
-        },
-        y: {
-          title: {
-            display: false,
-            text: 'Voltage (V)',
-            color: 'white'
-          },
-          suggestedMin: 9,
-          suggestedMax: 15,  // Adjust based on your expected voltage range
-          ticks: {
-            callback: function(value) {
-              return value + 'V'; // Add 'V' to ticks
-            }
-          }  
-        }
-      },
-      plugins: {
-        legend: {
-          labels: {
-            color: 'grey'
-          }
-        }
-      }
-    },
-    plugins: [{
-      beforeDraw: (chart) => {
-        const ctx = chart.canvas.getContext('2d');
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-over';
-        ctx.fillStyle = 'lightyellow';
-        ctx.fillRect(0, 0, chart.width, chart.height);
-        ctx.restore();
-      }
-    }]
-  });
-
-  if (tempSlider) {
-    tempSlider.oninput = function() {
-      var value = this.value; // Current slider value
-      
-      // Update both displays immediately when the slider moves
-      updateTempDisplay(value);
-    };
-
-    tempSlider.onchange = function() {
-      setTemp(this.value); // This will send the new temp to the server
-    };
-  }
-
-  // Function to update slider and temp display based on heater_update data
-  function updateSliderAndDisplay(data) {
-    if (tempSlider) {
-      tempSlider.value = data.setTemp.toFixed(0);
-      updateTempDisplay(data.setTemp.toFixed(0));
-    }
-  }
-
-  var evtSource = new EventSource("/events");
-  
-evtSource.onmessage = function(e) {
-  console.log("Event received:", e.data);
-  // Ensure e.data exists, is a string, and has content
-  if (e.data && typeof e.data === 'string' && e.data.trim() !== '') {
-    try {
-      var eventLines = e.data.split('\n');
-      // Check if we have at least two lines (event and data)
-      if (eventLines.length < 2) {
-        console.error("Received malformed SSE event:", e.data);
-        return;
-      }
-
-      var eventNameLine = eventLines[0].split(': ');
-      var eventDataLine = eventLines[1].split(': ');
-
-      // Verify the event line starts with "event" and has a name
-      if (eventNameLine[0] !== 'event' || !eventNameLine[1]) {
-        console.error("Invalid event name format:", eventLines[0]);
-        return;
-      }
-
-      // Verify the data line starts with "data" and has content
-      if (eventDataLine[0] !== 'data' || !eventDataLine[1]) {
-        console.error("Invalid event data format:", eventLines[1]);
-        return;
-      }
-
-      var eventName = eventNameLine[1];
-      var eventData = eventDataLine[1];
-
-      if (eventName === 'heater_update') {
-        var data = JSON.parse(eventData);
-        var currentTime = new Date().getTime();
-
-        // Check if 20 seconds have passed since the last update for setTemp
-        if (currentTime - lastUpdateTime >= 20000) {
-          lastUpdateTime = currentTime;
-          updateSliderAndDisplay(data);
-        }
-
-        // Update UI elements
-        document.getElementById("currentTemp").textContent = data.currentTemp.toFixed(1) + "°F";
-        document.getElementById("heaterState").textContent = data.state;
-        document.getElementById("runtime").textContent = data.heaterHourMeter.toFixed(2) + "Hrs";
-        document.getElementById("currentTime").querySelector("span").textContent = data.time;
-        document.getElementById("currentDate").querySelector("span").textContent = data.date;
-        document.getElementById("currentWallTempTrigger").textContent = data.walltemptrigger.toFixed(0);
-        document.getElementById("uptime").querySelector("span").textContent = formatUptime(parseInt(data.uptime));
-        document.getElementById("lifetimeFuel").textContent = data.fuelConsumedLifetime.toFixed(2) + " Gal";
-        document.getElementById("tankFuel").textContent = data.fuelConsumedTank.toFixed(3) + " Gal";
-        document.getElementById("currentUsage").textContent = data.currentUsage.toFixed(3) + " GPH";
-        document.getElementById("currentTankSize").textContent = data.tankSizeGallons.toFixed(0) + "Gal";
-        document.getElementById("avgGPH").textContent = data.averageGPH.toFixed(2) + "GPH";
-        document.getElementById("fanSpeed").textContent = data.fanSpeed + "RPM";
-        document.getElementById("supplyVoltage").textContent = data.supplyVoltage.toFixed(1) + "V";
-        document.getElementById("voltageWarning").textContent = data.voltageWarning;
-        document.getElementById("glowPlugHours").textContent = data.glowPlugHours.toFixed(2) + "Hrs";
-        document.getElementById("frostMode").checked = data.frostMode;
-        document.getElementById("rollingAvgGPH").textContent = data.rollingAvgGPH.toFixed(2) + " GPH";
-        document.getElementById("rollingRuntimeHours").textContent = (data.rollingRuntimeHours === null ? '∞' : data.rollingRuntimeHours.toFixed(2)) + " Hrs";
-        document.getElementById("tankruntime").textContent = data.remainingRuntimeHours.toFixed(2) + "Hrs";
-
-        var errorElement = document.getElementById("heatererror");
-        if (data.errornum > 1) {
-          document.getElementById("heatererrortxt").textContent = data.error || "Unknown Error";
-          errorElement.style.display = "inline-block";
-        } else {
-          document.getElementById("heatererrortxt").textContent = "";
-          errorElement.style.display = "none";
-        }
-
-        document.getElementById('ductfan').textContent = data.ductfan ? "On" : "Off";
-        document.getElementById('wallfan').textContent = data.wallfan ? "On" : "Off";
-        var thermostatLabel = document.getElementById("thermostatLabel");
-        thermostatLabel.textContent = data.controlEnable ? "Thermostat On" : "Thermostat Off";
-        thermostatLabel.classList.toggle("active", data.controlEnable);
-        document.getElementById("thermostatEnable").checked = data.controlEnable;
-        document.getElementById("heaterInternalTemp").textContent = (data.heaterinternalTemp * 9/5 + 32).toFixed(1) + "°F";
-        document.getElementById("glowPlugCurrent").textContent = data.glowPlugCurrent_Amps.toFixed(2);
-        document.getElementById("pumpHz").textContent = data.pumpHz.toFixed(1);
-        document.getElementById("walltemp").textContent = data.walltemp.toFixed(1);
-
-        // Fuel gauge
-        var tankSizeGallons = data.tankSizeGallons;
-        var fuelConsumedTank = data.fuelConsumedTank;
-        var gallonsLeft = tankSizeGallons > 0 ? tankSizeGallons - fuelConsumedTank : 0;
-        gallonsLeft = Math.max(0, gallonsLeft);
-        var fuelPercentage = tankSizeGallons > 0 ? (gallonsLeft / tankSizeGallons) * 100 : 0;
-        fuelPercentage = Math.max(0, Math.min(100, fuelPercentage));
-        document.getElementById("fuelGallonsLeft").textContent = gallonsLeft.toFixed(2) + " Gal";
-        var rotation = (fuelPercentage / 100) * 180;
-        document.getElementById("fuelGaugeFill").style.transform = `rotate(${rotation}deg)`;
-        var fuelGaugeFill = document.getElementById("fuelGaugeFill");
-        if (fuelPercentage < 10) fuelGaugeFill.style.backgroundColor = "#FF0000";
-        else if (fuelPercentage < 25) fuelGaugeFill.style.backgroundColor = "#FFA500";
-        else if (fuelPercentage < 50) fuelGaugeFill.style.backgroundColor = "#FFFF";
-        else fuelGaugeFill.style.backgroundColor = "#327A24";
-
-        var messageDiv = document.getElementById("message");
-        if (tankSizeGallons > 0 && fuelConsumedTank >= tankSizeGallons * 0.90) {
-          messageDiv.textContent = "Warning: Fuel level is low!";
-          messageDiv.style.display = "inline-block";
-        }
-
-        // Temperature chart
-        if (data.tempHistory) {
-          var tempHistory = JSON.parse(data.tempHistory);
-          tempChart.data.labels = tempHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
-          tempChart.data.datasets[0].data = tempHistory.tempHistory;
-          tempChart.update();
-        }
-
-        // Voltage chart
-        if (data.voltageHistory) {
-          var voltageHistory = JSON.parse(data.voltageHistory);
-          voltageChart.data.labels = voltageHistory.timestamps.map(t => new Date(Date.now() - (t * 1000)));
-          voltageChart.data.datasets[0].data = voltageHistory.voltageHistory;
-          const minVoltage = Math.min(...voltageHistory.voltageHistory);
-          if (minVoltage < 10) {
-            voltageChart.options.scales.y.suggestedMin = Math.floor(minVoltage) - 1;
-          } else {
-            voltageChart.options.scales.y.suggestedMin = 10;
-          }
-          voltageChart.options.scales.y.suggestedMax = 15;
-          voltageChart.update();
-        }
-
-        clearInterval(intervalId);
-        intervalId = setInterval(() => {
-          var xhr = new XMLHttpRequest();
-          xhr.open("GET", "/getcurrenttemp", true);
-          xhr.onload = function() {
-            if (xhr.status === 200) {
-              var tempData = JSON.parse(xhr.responseText);
-              updateSliderAndDisplay(tempData);
-            }
-          };
-          xhr.send();
-        }, 20000);
-      } else {
-        console.log("Received unknown event:", eventName);
-      }
-    } catch (error) {
-      console.error("Error processing SSE event:", error, "Raw data:", e.data);
-    }
-  } else {
-    console.warn("Received empty or invalid SSE message:", e.data);
-  }
-};
-
-  var listFilesBtn = document.getElementById('listFilesBtn');
-  if (listFilesBtn) {
-    listFilesBtn.addEventListener('click', function() {
-      var xhr = new XMLHttpRequest();
-      xhr.open("GET", "/listfiles", true);
-      xhr.onload = function() {
-        if (xhr.status === 200) {
-          var fileList = JSON.parse(xhr.responseText);
-          updateFileList(fileList.files);
-        }
-      };
-      xhr.send();
-    });
-  }
-
-  function updateFileList(data) {
-    var tableBody = document.getElementById('fileListBody');
-    if (tableBody) {
-      tableBody.innerHTML = ''; // Clear existing entries
-      data.forEach(function(file) {
-        var row = tableBody.insertRow();
-        var nameCell = row.insertCell(0);
-        var sizeCell = row.insertCell(1);
-        nameCell.textContent = file.name;
-        sizeCell.textContent = file.size;
-      });
-    }
-  }
-
-  evtSource.onerror = function(e) {
-    console.error("EventSource failed:", e);
-  };
-
-  evtSource.onopen = function(e) {
-    console.log("EventSource connection opened");
-  };
-});
-</script>
+<script src="/heat.js"></script>
 <script src="/chart.js"></script>
 <script src="/chartjs-adapter-date.js"></script>
 <script src="/index.js"></script>
