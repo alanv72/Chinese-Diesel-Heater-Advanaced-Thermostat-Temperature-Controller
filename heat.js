@@ -836,7 +836,7 @@ tempChart = new Chart(ctx, {
         },
         y: {
           beginAtZero: true,
-          title: { display: true, text: 'Gallons', color: 'grey' },
+          title: { display: false, text: 'Gallons', color: 'grey' },
           ticks: {
             stepSize: 0.005,
             callback: function(value) { return value.toFixed(2) + ' gal'; },
@@ -1195,35 +1195,28 @@ tempChart = new Chart(ctx, {
             messageDiv.style.display = "none";
           }
 
-          // Update Hourly Fuel Chart with relative timestamps
           if (data.hourlyFuelHistory) {
             const hourlyFuelData = JSON.parse(data.hourlyFuelHistory);
             const hourlyFuel = hourlyFuelData.hourlyFuelGallons || [];
             const hourlyTimestamps = hourlyFuelData.hourlyFuelTimestamps || [];
             const accumulator = hourlyFuelData.hourlyFuelAccumulator || 0;
 
-            // Convert relative timestamps (seconds ago) to Date objects
             const currentTime = Date.now();
             const labels = hourlyTimestamps.map(ts => new Date(currentTime - (ts * 1000)));
 
-            // Set completed hours
+            // Update completed hours
             hourlyFuelChart.data.labels = labels;
             hourlyFuelChart.data.datasets[0].data = hourlyFuel;
 
-            // Add current hour’s accumulator
+            // Add in-progress hour (current accumulator) as a separate bar
             const currentHourStart = new Date(Math.floor(Date.now() / 3600000) * 3600000);
             currentHourStart.setMinutes(0, 0, 0);
 
-            // Check if the last timestamp is the current hour (adjusted for relative time)
-            const lastTimestamp = hourlyTimestamps.length > 0 ? hourlyTimestamps[hourlyTimestamps.length - 1] : null;
-            const lastHourAgo = lastTimestamp ? new Date(currentTime - (lastTimestamp * 1000)) : null;
-            const currentHourStartTime = currentHourStart.getTime();
-
-            if (lastHourAgo && Math.abs(lastHourAgo.getTime() - currentHourStartTime) < 3600000) { // Within 1 hour
-              hourlyFuelChart.data.datasets[1].data = [];
-            } else {
+            if (accumulator > 0) {
               hourlyFuelChart.data.labels = [...labels, currentHourStart];
               hourlyFuelChart.data.datasets[1].data = [...new Array(hourlyFuel.length).fill(null), accumulator];
+            } else {
+              hourlyFuelChart.data.datasets[1].data = [];
             }
 
             hourlyFuelChart.update();

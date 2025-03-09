@@ -77,9 +77,9 @@ DallasTemperature sensors(&oneWire);
 
 // Wi-Fi credentials
 const char* primarySSID = "freedom";
-const char* primaryPassword = "!";
+const char* primaryPassword = "ontheroadagain!";
 const char* fallbackSSID = "littlesugar";
-const char* fallbackPassword = "!";
+const char* fallbackPassword = "netgearsucks!";
 
 // WiFi connection timing
 const unsigned long PRIMARY_CONNECT_TIME = 10000;
@@ -98,7 +98,7 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org",-21600, 10800000);
 
 // Weather API settings
-const char* WEATHER_API_KEY = "YOURFREEKEYHERE"; // Replace with your API key
+const char* WEATHER_API_KEY = "aeb9ccaba969c927fc2b8ce501da53a8"; // Replace with your API key
 String ZIP_CODE = "64856"; // Default value, loaded from Preferences
 const char*COUNTRY_CODE = "us"; // Adjust if not in the U.S.
 const char* WEATHER_API_HOST = "api.openweathermap.org";
@@ -1235,7 +1235,7 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
 
             // Mode 1: Fan speed-based control (if tempGap isn’t driving)
             if (newDuctFanPWM == 0 && fanSpeed > 2000 && heaterStateNum > 3) {
-                newVoltage = map(fanSpeed, 2000, 5000, 10.0, validatedSupply);
+                newVoltage = map(fanSpeed, 2000, 4900, 10.0, validatedSupply);
                 newVoltage = constrain(newVoltage, 10.0, validatedSupply);
                 newDuctFanPWM = calculateAdjustedPWM(newVoltage, validatedSupply);
                 ductfandelay = 0;
@@ -1244,7 +1244,7 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
             }
         } else {
             if (fanSpeed > 2000 && heaterStateNum > 3) {
-                newVoltage = map(fanSpeed, 2000, 5000, 10.0, validatedSupply);
+                newVoltage = map(fanSpeed, 2000, 4900, 10.0, validatedSupply);
                 newVoltage = constrain(newVoltage, 10.0, validatedSupply);
                 newDuctFanPWM = calculateAdjustedPWM(newVoltage, validatedSupply);
                 ductfandelay = 0;
@@ -1322,10 +1322,10 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
                 // Linear interpolation: 2000 RPM (6.7V) to 5000 RPM (supplyVoltage)
                 float minPWM = cachedFanLow * (6.7 / 10.5); // 6.7V
                 float maxPWM = cachedFanHigh; // supplyVoltage
-                float rpmRange = 5000.0 - 2000.0; // 3000 RPM span
+                float rpmRange = 4900.0 - 2000.0; // 3000 RPM span
                 float pwmRange = maxPWM - minPWM;
                 float rpmFraction = (fanSpeed - 2000.0) / rpmRange; // 0.0 at 2000, 1.0 at 5000
-                newWallFanPWM = (int)(minPWM + pwmRange * (fanSpeed < 5000 ? rpmFraction : 1.0));
+                newWallFanPWM = (int)(minPWM + pwmRange * (fanSpeed < 4900 ? rpmFraction : 1.0));
                 newWallFanPWM = constrain(newWallFanPWM, (int)minPWM, (int)maxPWM);
                 newVoltage = 6.7 + (rpmFraction * (validatedSupply - 6.7)); // Voltage mapping
                 wallfandelay = 0; // No delay on speed changes
