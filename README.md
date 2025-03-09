@@ -3,7 +3,9 @@
 ![image](https://github.com/user-attachments/assets/432b674f-6094-4a57-b9da-d1afd8ae339a)
 ![image](https://github.com/user-attachments/assets/414c9f24-d4ce-4b0e-ae7c-99cb6a9d24e0)
 
-added history charts with saves to json files on spiff and reload on boot. Fans are now controlled with PWM over IRLZ44 mosfet instead of simple relay. Still use the 3v to 5v shifter to ensure mosfet is completely on. shifted the software serial pin so that it doesn't interfere with Bluetooth in the future. Added outdoor temp to chart. add file management with delete function.
+added history charts with saves to json files on spiff and reload on boot. Fans are now controlled with PWM over IRLZ44 mosfet instead of simple relay. Still use the 3v to 5v shifter to ensure mosfet is completely on. shifted the software serial pin so that it doesn't interfere with Bluetooth in the future. Added outdoor temp to chart. add file management with delete function. TODO: add mqtt to HA for reporting and controls. add BLE fuctionality to interfade directly without wifi.
+
+
 
 Upload js and ico files along with the index_html to SPIFF with /fallback
 
