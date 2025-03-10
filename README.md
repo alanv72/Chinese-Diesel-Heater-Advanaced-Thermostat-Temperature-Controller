@@ -1,6 +1,8 @@
 Updated Frost mode.
+
 ![image](https://github.com/user-attachments/assets/19fe8017-6a75-46a7-86a0-744ed1ae7b08)
 added some Totals based on 24hr chart data. Frontend only.
+
 ![image](https://github.com/user-attachments/assets/8da05b24-8115-452d-8f36-fff700f42d15)
 
 
