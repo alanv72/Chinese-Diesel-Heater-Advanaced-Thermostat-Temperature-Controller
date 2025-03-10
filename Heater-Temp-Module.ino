@@ -1320,7 +1320,7 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
         sendData(data1, 24);
         Serial.println("Frost Mode: Starting Heater");
         message = "Frost Mode Start";
-      } else if (wallTempF >= 50.0 && heaterStateNum > 0) {
+      } else if (wallTempF >= 46.0 && heaterStateNum > 0) {
         uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
         sendData(data1, 24);
         Serial.println("Frost Mode: Shutting Down Heater");
