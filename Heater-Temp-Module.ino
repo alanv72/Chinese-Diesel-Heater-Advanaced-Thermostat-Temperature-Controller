@@ -357,6 +357,36 @@ void updateWattHourHistory(float wattHours, unsigned long epochTime) {
   }
 }
 
+void updateHourlyFuelHistory(float fuelGallons, unsigned long epochTime) {
+  static unsigned long lastHourlyFuelUpdate = 0;
+  static bool fuelInitialized = false;
+
+  // Initialize lastHourlyFuelUpdate from saved data on first run
+  if (!fuelInitialized && hourlyFuelAccumulator > 0) {
+    unsigned long latestFuelTime = 0;
+    for (int i = 0; i < HOURLY_FUEL_SIZE; i++) {
+      if (hourlyFuelTimestamps[i] > latestFuelTime) latestFuelTime = hourlyFuelTimestamps[i];
+    }
+    lastHourlyFuelUpdate = latestFuelTime > 0 ? latestFuelTime + 3600 : epochTime - (epochTime % 3600);
+    fuelInitialized = true;
+    Serial.println("Initialized lastHourlyFuelUpdate to " + String(lastHourlyFuelUpdate));
+  }
+
+  hourlyFuelAccumulator += fuelGallons;
+
+  unsigned long currentHourStart = epochTime - (epochTime % 3600);
+  unsigned long lastHourStart = lastHourlyFuelUpdate - (lastHourlyFuelUpdate % 3600);
+  if (currentHourStart > lastHourStart && fuelInitialized) {
+    hourlyFuelGallons[hourlyFuelIndex] = hourlyFuelAccumulator;
+    hourlyFuelTimestamps[hourlyFuelIndex] = currentHourStart - 3600;
+    hourlyFuelIndex = (hourlyFuelIndex + 1) % HOURLY_FUEL_SIZE;
+    hourlyFuelAccumulator = 0.0;
+    lastHourlyFuelUpdate = epochTime;
+    Serial.println("Hourly fuel rolled over: " + String(hourlyFuelGallons[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE], 6) + 
+                   " gal at " + String(hourlyFuelTimestamps[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE]));
+  }
+}
+
 // Function to calculate rolling 24-hour average watt-hours per hour
 float calculateRolling24HourAverageWattHours() {
   unsigned long currentTime = timeClient.getEpochTime();
@@ -666,9 +696,11 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
 
   connectToWiFi();
+  delay(1000); // Delay for wifi stabilization
   timeClient.update();
   delay(1000); // Delay for NTP sync
   updateWeatherData();
+  delay(1000); // Delay for weathersync
 
   preferences.begin("heater", false);
   ZIP_CODE = preferences.getString("zipcode", "64856");
@@ -1478,7 +1510,7 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
         int newWallFanPWM = 0;
         float newVoltage = 0.0;
 
-        if (voltagegood && heaterStateNum > 3) {
+        if (voltagegood && heaterStateNum > 3 && heaterinternalTemp >= 120) {
             if (fanSpeed <= 2000) {
                 if (wallfandelay == 0) {
                     wallfandelay = millis() + 30000; // 30-second delay to turn off
@@ -1561,7 +1593,8 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       // Accumulate pump Hz for averaging
       pumpHzAccumulator += pumpHz;
       pumpHzSampleCount++;
-      hourlyFuelAccumulator += cycleFuelGallons;
+      // Update hourly fuel accumulator
+      updateHourlyFuelHistory(cycleFuelGallons, timeClient.getEpochTime());
     } else {
       currentGPH = 0;
     }
@@ -1648,22 +1681,6 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       ampsHistory[ampsIndex] = totalAmps;
       ampsTimestamps[ampsIndex] = epochTime;
       ampsIndex = (ampsIndex + 1) % AMPS_HISTORY_SIZE;
-      // Hourly fuel update aligned with real-world hours
-      unsigned long currentHourStart = epochTime - (epochTime % 3600);
-      unsigned long lastLoggedHourStart = (hourlyFuelIndex > 0) ? 
-                                          hourlyFuelTimestamps[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE] : 
-                                          (currentHourStart - 3600);
-      static bool fuelInitialized = false;
-      if (!fuelInitialized && hourlyFuelAccumulator > 0) {
-        fuelInitialized = true; // Skip reset on first run if loaded
-        // Serial.println("Preserving loaded hourlyFuelAccumulator: " + String(hourlyFuelAccumulator, 6));
-      } else if (currentHourStart > lastLoggedHourStart) {
-        hourlyFuelGallons[hourlyFuelIndex] = hourlyFuelAccumulator;
-        hourlyFuelTimestamps[hourlyFuelIndex] = currentHourStart - 3600;
-        hourlyFuelIndex = (hourlyFuelIndex + 1) % HOURLY_FUEL_SIZE;
-        hourlyFuelAccumulator = 0.0;
-        // Serial.println("Fuel rolled over, reset accumulator");
-      }
       saveHistoryToSPIFFS();
       firstHistUpdate = false;  // Disable first-run trigger after this
     }

@@ -675,7 +675,7 @@ tempChart = new Chart(ctx, {
         type: 'time',
         time: {
           unit: 'minute',
-          displayFormats: { minute: 'HH:mm' },
+          displayFormats: { minute: 'H:mm' },
           tooltipFormat: 'HH:mm'
         },
         adapters: { date: { locale: customLocale } },
@@ -772,7 +772,7 @@ var voltageChart = new Chart(ctxVoltage, {
     scales: {
       x: {
         type: 'time',
-        time: { unit: 'minute', displayFormats: { minute: 'HH:mm' }, tooltipFormat: 'HH:mm' },
+        time: { unit: 'minute', displayFormats: { minute: 'H:mm' }, tooltipFormat: 'HH:mm' },
         adapters: { date: { locale: customLocale } },
         title: { display: false, text: 'Time', color: 'grey' }
       },
@@ -869,8 +869,8 @@ var voltageChart = new Chart(ctxVoltage, {
           type: 'time',
           time: {
             unit: 'hour',
-            displayFormats: { hour: 'HH:00' },
-            tooltipFormat: 'MM/dd HH:00'
+            displayFormats: { hour: 'H' },
+            tooltipFormat: 'MM/dd H:00'
           },
           adapters: { date: { locale: customLocale } },
           title: { display: true, text: 'Hour', color: 'grey' }
@@ -935,8 +935,8 @@ var wattHourChart = new Chart(ctxWattHour, {
         type: 'time',
         time: {
           unit: 'hour',
-          displayFormats: { hour: 'HH:00' },
-          tooltipFormat: 'MM/dd HH:00'
+          displayFormats: { hour: 'H' },
+          tooltipFormat: 'MM/dd H:00'
         },
         adapters: { date: { locale: customLocale } },
         title: { display: true, text: 'Hour', color: 'grey' }
