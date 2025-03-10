@@ -280,14 +280,17 @@ float calculateDuctFanAmps(float voltage) {
 // Function to calculate wall fan amps based on voltage
 float calculateWallFanAmps(float voltage) {
   if (voltage <= 0) return 0.0;
-  if (voltage <= 6.0) {
-    return (voltage / 6.0) * 0.88;
-  } else if (voltage <= 9.0) {
-    float slope = (1.2 - 0.88) / (9.0 - 6.0); // 0.10667 A/V
-    return 0.88 + slope * (voltage - 6.0);
+  if (voltage <= 7.0) {
+    // Linear from 0V (0A) to 7V (1.9A)
+    return (voltage / 7.0) * 1.9; // Slope ≈ 0.27143 A/V
+  } else if (voltage <= 9.5) {
+    // Linear from 7V (1.9A) to 9.5V (2.8A)
+    float slope = (2.8 - 1.9) / (9.5 - 7.0); // 0.36 A/V
+    return 1.9 + slope * (voltage - 7.0);
   } else {
-    float slope = (1.3 - 1.2) / (12.0 - 9.0); // 0.03333 A/V
-    return 1.2 + slope * (voltage - 9.0);
+    // Linear from 9.5V (2.8A) to 12V (4.8A) and beyond (e.g., 14V, 6.4A)
+    float slope = (4.8 - 2.8) / (12.0 - 9.5); // 0.8 A/V
+    return 2.8 + slope * (voltage - 9.5);
   }
 }
 
@@ -340,7 +343,7 @@ void updateWattHourHistory(float wattHours, unsigned long epochTime) {
     }
     lastHourlyUpdate = latestWattTime > 0 ? latestWattTime + 3600 : epochTime - (epochTime % 3600);
     initialized = true;
-    Serial.println("Initialized lastHourlyUpdate to " + String(lastHourlyUpdate));
+    if (DEBUG) Serial.println("Initialized lastHourlyUpdate to " + String(lastHourlyUpdate));
   }
 
   wattHourAccumulator += wattHours;
@@ -353,7 +356,7 @@ void updateWattHourHistory(float wattHours, unsigned long epochTime) {
     wattHourIndex = (wattHourIndex + 1) % WATT_HOUR_HISTORY_SIZE;
     wattHourAccumulator = 0.0;
     lastHourlyUpdate = epochTime;
-    Serial.println("Watt-hour rolled over, reset accumulator");
+    if (DEBUG) Serial.println("Watt-hour rolled over, reset accumulator");
   }
 }
 
@@ -369,21 +372,26 @@ void updateHourlyFuelHistory(float fuelGallons, unsigned long epochTime) {
     }
     lastHourlyFuelUpdate = latestFuelTime > 0 ? latestFuelTime + 3600 : epochTime - (epochTime % 3600);
     fuelInitialized = true;
-    Serial.println("Initialized lastHourlyFuelUpdate to " + String(lastHourlyFuelUpdate));
+    if (DEBUG) Serial.println("Initialized lastHourlyFuelUpdate to " + String(lastHourlyFuelUpdate));
   }
 
-  hourlyFuelAccumulator += fuelGallons;
+  // Accumulate fuel only if there’s consumption
+  if (fuelGallons > 0) {
+    hourlyFuelAccumulator += fuelGallons;
+    if (DEBUG) Serial.println("Added " + String(fuelGallons, 6) + " gal, hourlyFuelAccumulator now " + String(hourlyFuelAccumulator, 6));
+  }
 
+  // Check for hourly rollover regardless of fuel input
   unsigned long currentHourStart = epochTime - (epochTime % 3600);
   unsigned long lastHourStart = lastHourlyFuelUpdate - (lastHourlyFuelUpdate % 3600);
   if (currentHourStart > lastHourStart && fuelInitialized) {
     hourlyFuelGallons[hourlyFuelIndex] = hourlyFuelAccumulator;
     hourlyFuelTimestamps[hourlyFuelIndex] = currentHourStart - 3600;
     hourlyFuelIndex = (hourlyFuelIndex + 1) % HOURLY_FUEL_SIZE;
+    if (DEBUG) Serial.println("Hourly fuel rolled over: " + String(hourlyFuelGallons[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE], 6) + 
+                   " gal at " + String(hourlyFuelTimestamps[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE]));
     hourlyFuelAccumulator = 0.0;
     lastHourlyFuelUpdate = epochTime;
-    Serial.println("Hourly fuel rolled over: " + String(hourlyFuelGallons[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE], 6) + 
-                   " gal at " + String(hourlyFuelTimestamps[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE]));
   }
 }
 
@@ -909,7 +917,7 @@ void setup() {
     response->addHeader("Connection", "keep-alive");
     response->addHeader("Access-Control-Allow-Origin", "*");
     request->send(response);
-    Serial.println("Event stream response sent...");
+    if (DEBUG) Serial.println("Event stream response sent...");
   });
 
   server.on("/primepump", HTTP_POST, [](AsyncWebServerRequest* request) {
@@ -965,18 +973,18 @@ void setup() {
       if (SPIFFS.exists(fullPath)) {
         if (SPIFFS.remove(fullPath)) {
           request->send(200, "text/plain", "File deleted: " + filename);
-          Serial.println("Deleted file: " + filename);
+          if (DEBUG) Serial.println("Deleted file: " + filename);
         } else {
           request->send(500, "text/plain", "Failed to delete file: " + filename);
-          Serial.println("Failed to delete: " + filename);
+          if (DEBUG) Serial.println("Failed to delete: " + filename);
         }
       } else {
         request->send(404, "text/plain", "File not found: " + filename);
-        Serial.println("File not found: " + filename);
+        if (DEBUG) Serial.println("File not found: " + filename);
       }
     } else {
       request->send(400, "text/plain", "No filename provided");
-      Serial.println("No filename in delete request");
+      if (DEBUG) Serial.println("No filename in delete request");
     }
   });
 
@@ -1033,13 +1041,13 @@ void setup() {
     sendData(data1, 24);
     //controlEnable = 1; // Enable thermostat control
     cshut = 0; // Reset shutdown flag
-    if (DEBUG) Serial.println("Heater on command sent");
+    Serial.println("Heater on command sent");
     request->send(200, "text/plain", "Heater on command sent");
   });
 
   server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest* request) {
   if (request->hasParam("confirm") && request->getParam("confirm")->value() == "DOIT" && eventen) {
-    if (DEBUG) Serial.println("Reboot request received with confirmation");
+    Serial.println("Reboot request received with confirmation");
     request->send(200, "text/plain", "Rebooting ESP32...");
     saveHistoryToSPIFFS();
     end();
@@ -1058,7 +1066,7 @@ void setup() {
         if (newZip != ZIP_CODE) { // Only update if changed
           ZIP_CODE = newZip;
           preferences.putString("zipcode", ZIP_CODE);
-          Serial.println("Zip code updated to: " + ZIP_CODE);
+          if (DEBUG) Serial.println("Zip code updated to: " + ZIP_CODE);
           updateWeatherData(); // Fetch weather immediately on change
         }
         request->send(200, "text/plain", "Zip code set to " + ZIP_CODE);
@@ -1100,7 +1108,7 @@ void setup() {
 
   events.onConnect([](AsyncEventSourceClient *client){
     if(client->lastId()){
-      Serial.printf("Client reconnected! Last message ID that it got is: %u\n",
+      if (DEBUG) Serial.printf("Client reconnected! Last message ID that it got is: %u\n",
       client->lastId());
     }
     // send event with message "hello!", id current millis
@@ -1277,14 +1285,14 @@ void loop() {
         uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
         sendData(data1, 24);
         flashLength = 100;
-        Serial.println("  Starting Heater");
+        Serial.println(" Thermostat Starting Heater");
       }
       if (setTemperature <= (currentTemperature - 1) && (heaterStateNum >= 1 && heaterStateNum <= 5)) {
         uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
         sendData(data1, 24);
         cshut = 1;
         flashLength = 3000;
-        Serial.println("  Stopping Heater");
+        Serial.println(" Thermostat Stopping Heater");
       }
     }
 
@@ -1582,10 +1590,11 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
   if ((unsigned long)(millis() - lastEvent) >= 2000 && serialActive) { // Overflow-safe
     lastEvent = millis();
     if (heaterStateNum >= 2 && heaterStateNum <= 5) heaterRunTime += 2;
+    float cycleFuelGallons = 0.0;
     if (pumpHz > 0) {
       float pumpsPerCycle = pumpHz * 2;
       float cycleFuel = (pumpsPerCycle / 1000.0) * PUMP_FLOW_PER_1000_PUMPS;
-      float cycleFuelGallons = cycleFuel * ML_TO_GALLON;
+      cycleFuelGallons = cycleFuel * ML_TO_GALLON;
       fuelConsumption += cycleFuel;
       tankConsumption += cycleFuel;
       tankRuntime += 2;
@@ -1593,11 +1602,13 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       // Accumulate pump Hz for averaging
       pumpHzAccumulator += pumpHz;
       pumpHzSampleCount++;
-      // Update hourly fuel accumulator
-      updateHourlyFuelHistory(cycleFuelGallons, timeClient.getEpochTime());
     } else {
       currentGPH = 0;
     }
+
+    // Update hourly fuel accumulator
+    updateHourlyFuelHistory(cycleFuelGallons, timeClient.getEpochTime());
+
     if (glowPlugCurrent_Amps > 0.5) glowPlugHours += 2.0 / 3600.0;
     rollingAvgGPH = (alpha * currentGPH) + ((1 - alpha) * rollingAvgGPH);
     if (totalTankTime > 0) {
@@ -2153,7 +2164,7 @@ void saveHistoryToSPIFFS() {
         ampsArray.add(ampsHistory[idx]);
         ampsTimeArray.add(ampsTimestamps[idx]);
         validAmpsEntries++;
-        Serial.printf("Saving amps: %.2f A at %lu\n", ampsHistory[idx], ampsTimestamps[idx]);
+        if (DEBUG) Serial.printf("Saving amps: %.2f A at %lu\n", ampsHistory[idx], ampsTimestamps[idx]);
       }
     }
   }
@@ -2210,7 +2221,7 @@ void saveHistoryToSPIFFS() {
   doc["wattHourAccumulator"] = wattHourAccumulator;
   doc["wattHourAccumulatorTime"] = currentTime;
 
-  Serial.println("Saved hourly fuel entries: " + String(hourlyFuelArray.size()) + 
+  if (DEBUG) Serial.println("Saved hourly fuel entries: " + String(hourlyFuelArray.size()) + 
                  ", watt-hour entries: " + String(wattHourArray.size()) +
                  ", amps entries: " + String(ampsArray.size()));
 
@@ -2230,7 +2241,7 @@ void saveHistoryToSPIFFS() {
       Serial.println(saveError);
       SPIFFS.remove(filename);
     } else {
-      Serial.println("Wrote " + String(bytesWritten) + " bytes to " + filename + " with " + 
+      if (DEBUG) Serial.println("Wrote " + String(bytesWritten) + " bytes to " + filename + " with " + 
                      String(tempArray.size()) + " temp entries, " + 
                      String(voltArray.size()) + " voltage entries, " +
                      String(ampsArray.size()) + " amps entries, " +
