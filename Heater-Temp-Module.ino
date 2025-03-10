@@ -79,9 +79,9 @@ DallasTemperature sensors(&oneWire);
 
 // Wi-Fi credentials
 const char* primarySSID = "freedom";
-const char* primaryPassword = "ontheroadagain!";
+const char* primaryPassword = "!";
 const char* fallbackSSID = "littlesugar";
-const char* fallbackPassword = "netgearsucks!";
+const char* fallbackPassword = "!";
 
 // WiFi connection timing
 const unsigned long PRIMARY_CONNECT_TIME = 10000;
@@ -100,7 +100,7 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 10800000);
 
 // Weather API settings
-const char* WEATHER_API_KEY = "aeb9ccaba969c927fc2b8ce501da53a8"; // Replace with your API key
+const char* WEATHER_API_KEY = "YOURKEY"; // Replace with your API key
 String ZIP_CODE = "64856"; // Default value, loaded from Preferences
 const char*COUNTRY_CODE = "us"; // Adjust if not in the U.S.
 const char* WEATHER_API_HOST = "api.openweathermap.org";
