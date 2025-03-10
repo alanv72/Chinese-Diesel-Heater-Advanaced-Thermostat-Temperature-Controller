@@ -252,8 +252,15 @@
       background-color: #e67e22;
       width 100%;
     }
-    #frostMode input[type="checkbox"] {
+    #frostModeControl input[type="checkbox"] {
       display: none;
+    }
+    #frostModeControl input[type="checkbox"]:checked + label {
+      background-color: #e67e22; /* Active state color */
+    }
+    #frostModeControl label.active {
+      background-color: #e67e22;
+      width 100%;
     }
         /* Fuel Gauge Styling */
     .gauge {
@@ -592,9 +599,9 @@
     <button id="primeStart" onclick="primePump('start')">Start Pump Prime</button>
     <button id="primeStop" onclick="primePump('stop')">Stop Pump Prime</button>
   </div>
-  <div id="frostMode" style="text-align: center;">
-    <input type="checkbox" id="frostMode" onchange="toggleFrostMode(this.checked)">
-    <label for="frostMode">Frost Mode</label>
+  <div id="frostModeControl" style="text-align: center;">
+    <input type="checkbox" id="frostModeEnable" onchange="toggleFrostMode(this.checked)">
+    <label for="frostModeEnable" id="frostModeLabel">Frost Mode</label>
   </div>
 <div style="text-align: center;" class="walltemp">
 <div class="fan-section">

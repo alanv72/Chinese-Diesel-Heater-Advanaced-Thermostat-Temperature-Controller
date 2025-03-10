@@ -896,10 +896,15 @@ void setup() {
   });
 
   server.on("/frostMode", HTTP_POST, [](AsyncWebServerRequest* request) {
-    String enable = request->arg("enable");
-    frostModeEnabled = (enable == "true");
-    preferences.putBool("frostMode", frostModeEnabled);  // Save immediately
-    request->send(200, "text/plain", "Frost Mode updated");
+      String enable = request->arg("enable");
+      frostModeEnabled = (enable == "true");
+      if (frostModeEnabled) {
+          controlEnable = false;  // Only set controlEnable to false when frostModeEnabled is true
+      }
+      // If frostModeEnabled is false, controlEnable remains unchanged
+      preferences.putBool("frostMode", frostModeEnabled);  // Save frostModeEnabled to preferences
+      preferences.putBool("controlEnable", controlEnable); // Save controlEnable to preferences (corrected to putBool)
+      request->send(200, "text/plain", "Frost Mode updated");
   });
 
   server.on("/listfiles", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -953,7 +958,7 @@ void setup() {
   server.on("/resetTank", HTTP_POST, [](AsyncWebServerRequest* request) {
     tankRuntime = 0;
     tankConsumption = 0;
-    controlEnable = 1;
+    // controlEnable = 1;
     totalTankTime = 0;
     preferences.putFloat("tankRuntime", tankRuntime);
     preferences.putFloat("tankConsumption", tankConsumption);
@@ -1201,16 +1206,6 @@ void loop() {
       firstRun = false;
     }
 
-    if (frostModeEnabled) {
-      float currentTempF = celsiusToFahrenheit(currentTemperature);
-      if (currentTempF < 35.0 && heaterStateNum == 0) {
-        uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
-        sendData(data1, 24);
-        Serial.println("Frost Mode: Starting Heater");
-        message = "Frost Mode Start";
-      }
-    }
-
     static float lastSetTemperature = setTemperature;
     if (setTemperature != lastSetTemperature) {
       lastSetTemperature = setTemperature;
@@ -1316,6 +1311,21 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
         } else {
             tempwarn = 0;
         }
+    }
+
+    if (frostModeEnabled) {
+      if (wallTempF < 40.0 && heaterStateNum == 0) {
+        controlEnable = 0;
+        uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
+        sendData(data1, 24);
+        Serial.println("Frost Mode: Starting Heater");
+        message = "Frost Mode Start";
+      } else if (wallTempF >= 50.0 && heaterStateNum > 0) {
+        uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
+        sendData(data1, 24);
+        Serial.println("Frost Mode: Shutting Down Heater");
+        message = "Frost Mode Shutdown";
+      }
     }
 
     // Update cached PWM values only if supply voltage changed significantly

@@ -262,18 +262,40 @@ function setWallTempTrigger() {
 }
 
 function toggleFrostMode(enabled) {
+  var label = document.getElementById("frostModeLabel");
+  var newState = enabled;
+  console.log("Toggling frost mode. New state: " + newState);
+
   var xhr = new XMLHttpRequest();
-  xhr.open("POST", "/frostMode");
+  xhr.open("POST", "/frostMode", true);
   xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-  xhr.send("enable=" + enabled);      // Clear shutdown message if it exists
-  
-  var messageDiv = document.getElementById("message");
-  if (messageDiv.style.display === "inline-block" && messageDiv.textContent === "Heater was shut down.") {
-    messageDiv.textContent = "";
-    messageDiv.style.display = "none";
-    isShuttingDown = false;
-    console.log("Shutdown message cleared by thermostat toggle");
-  }
+  xhr.send("enable=" + newState);
+
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      console.log("Frost Mode toggle request successful");
+      label.textContent = newState ? "Frost Mode On" : "Frost Mode Off";
+      label.classList.toggle("active", newState);
+      document.getElementById("frostModeEnable").checked = newState;
+
+      // Clear shutdown message if it exists
+      var messageDiv = document.getElementById("message");
+      if (messageDiv.style.display === "inline-block" && messageDiv.textContent === "Heater was shut down.") {
+        messageDiv.textContent = "";
+        messageDiv.style.display = "none";
+        isShuttingDown = false;
+        console.log("Shutdown message cleared by frost mode toggle");
+      }
+    } else {
+      console.error("Failed to toggle frost mode. Status: " + xhr.status);
+      document.getElementById("frostModeEnable").checked = !newState; // Revert checkbox on failure
+    }
+  };
+
+  xhr.onerror = function() {
+    console.error("Network error while toggling frost mode");
+    document.getElementById("frostModeEnable").checked = !newState; // Revert checkbox on network error
+  };
 }
 
 function toggleThermostat(enabled) {
@@ -1119,7 +1141,6 @@ var wattHourChart = new Chart(ctxWattHour, {
           document.getElementById("supplyVoltage").textContent = data.supplyVoltage.toFixed(1) + "V";
           document.getElementById("voltageWarning").textContent = data.voltageWarning;
           document.getElementById("glowPlugHours").textContent = data.glowPlugHours.toFixed(2) + "Hrs";
-          document.getElementById("frostMode").checked = data.frostMode;
           document.getElementById("rollingAvgGPH").textContent = data.rollingAvgGPH.toFixed(2) + " GPH";
           document.getElementById("rollingRuntimeHours").textContent = (data.rollingRuntimeHours === null ? '∞' : data.rollingRuntimeHours.toFixed(2)) + " Hrs";
           document.getElementById("tankruntime").textContent = (data.remainingRuntimeHours == null? '∞' : data.remainingRuntimeHours.toFixed(2)) + "Hrs";
@@ -1257,6 +1278,11 @@ var wattHourChart = new Chart(ctxWattHour, {
           thermostatLabel.textContent = data.controlEnable ? "Thermostat On" : "Thermostat Off";
           thermostatLabel.classList.toggle("active", data.controlEnable);
           document.getElementById("thermostatEnable").checked = data.controlEnable;
+          // Frost Mode update (new)
+          var frostModeLabel = document.getElementById("frostModeLabel");
+          frostModeLabel.textContent = data.frostMode ? "Frost Mode On" : "Frost Mode Off";
+          frostModeLabel.classList.toggle("active", data.frostMode);
+          document.getElementById("frostModeEnable").checked = data.frostMode;
           document.getElementById("heaterInternalTemp").textContent = (data.heaterinternalTemp * 9/5 + 32).toFixed(1) + "°F";
           document.getElementById("glowPlugCurrent").textContent = data.glowPlugCurrent_Amps.toFixed(2);
           document.getElementById("pumpHz").textContent = data.pumpHz.toFixed(1);
