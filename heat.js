@@ -1274,6 +1274,29 @@ var wattHourChart = new Chart(ctxWattHour, {
               document.getElementById('wallfan').textContent = wallPwm === 0 ? "Off" : `${wallVoltage.toFixed(1)}V (${wallPwm})`;
           }
 
+          // 1. Fuel Gallons Total (24hr Gals)
+          if (data.hourlyFuelHistory) {
+            const hourlyFuelData = JSON.parse(data.hourlyFuelHistory);
+            const hourlyFuelGallons = hourlyFuelData.hourlyFuelGallons || [];
+            const hourlyFuelAccumulator = hourlyFuelData.hourlyFuelAccumulator || 0;
+            
+            // Sum historical gallons and add accumulator
+            const totalGallons = hourlyFuelGallons.reduce((sum, value) => sum + value, 0) + hourlyFuelAccumulator;
+            document.getElementById("totalGal").textContent = totalGallons.toFixed(2) + " Gal";
+          }
+
+          // 2. Watt-Hours Total (24hr Wh)
+          if (data.wattHourHistory) {
+            const wattHourData = JSON.parse(data.wattHourHistory);
+            const hourlyWattHours = wattHourData.wattHours || [];
+            const wattHourAccumulator = wattHourData.wattHourAccumulator || 0;
+            
+            // Sum historical watt-hours and add accumulator
+            const totalWattHours = hourlyWattHours.reduce((sum, value) => sum + value, 0) + wattHourAccumulator;
+            document.getElementById("totalWh").textContent = totalWattHours.toFixed(2) + " Wh";
+          }
+
+
           var thermostatLabel = document.getElementById("thermostatLabel");
           thermostatLabel.textContent = data.controlEnable ? "Thermostat On" : "Thermostat Off";
           thermostatLabel.classList.toggle("active", data.controlEnable);

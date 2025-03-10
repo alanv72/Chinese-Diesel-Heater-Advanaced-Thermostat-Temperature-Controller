@@ -534,6 +534,13 @@
       background: darkred;
       padding: 3px 0px 3px 0px;
     }
+    #fuelchart {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: darkred;
+      padding: 3px 0px 3px 0px;
+    }
     #manualZipInput {
       background: darkred;
     }
@@ -654,12 +661,15 @@
       <button id="setZipButton">Set ZIP Code</button> <!-- No onclick -->
     </div>
   </div>
-  <canvas id="hourlyFuelChart" width="400" height="150"></canvas>
-  <canvas id="voltageChart" width="400" height="150"></canvas>
-  <div id="wattchart"><br>
-  <label>24H AVG: <span id="avgWattHours24h">0.00 Wh/Hr</span></label>
+  <div id="fuelchart"><br>
+  <div class="data-box" id="totalGalLabel"><span>24HR Total Gals: </span><span id="totalGal" class="value">Calculating...</span></div>
   </div>
-  <canvas id="wattHourChart" width="400" height="200"></canvas>
+  <canvas id="hourlyFuelChart" width="400" height="150"></canvas>
+  <div id="wattchart"><br>
+  <label>24HR Avg: <span id="avgWattHours24h">0.00 Wh/Hr</span><span> / 24HR Total Wh: </span><span id="totalWh" class="value">Calculating...</span></label>
+  </div>
+  <canvas id="wattHourChart" width="400" height="150"></canvas>
+  <canvas id="voltageChart" width="400" height="150"></canvas>
   <div class="file-area">
     <h2>File Upload</h2>
     <form method="POST" action="/upload" enctype="multipart/form-data">
