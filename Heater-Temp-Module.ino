@@ -372,18 +372,23 @@ void updateHourlyFuelHistory(float fuelGallons, unsigned long epochTime) {
     Serial.println("Initialized lastHourlyFuelUpdate to " + String(lastHourlyFuelUpdate));
   }
 
-  hourlyFuelAccumulator += fuelGallons;
+  // Accumulate fuel only if there’s consumption
+  if (fuelGallons > 0) {
+    hourlyFuelAccumulator += fuelGallons;
+    if (DEBUG) Serial.println("Added " + String(fuelGallons, 6) + " gal, hourlyFuelAccumulator now " + String(hourlyFuelAccumulator, 6));
+  }
 
+  // Check for hourly rollover regardless of fuel input
   unsigned long currentHourStart = epochTime - (epochTime % 3600);
   unsigned long lastHourStart = lastHourlyFuelUpdate - (lastHourlyFuelUpdate % 3600);
   if (currentHourStart > lastHourStart && fuelInitialized) {
     hourlyFuelGallons[hourlyFuelIndex] = hourlyFuelAccumulator;
     hourlyFuelTimestamps[hourlyFuelIndex] = currentHourStart - 3600;
     hourlyFuelIndex = (hourlyFuelIndex + 1) % HOURLY_FUEL_SIZE;
-    hourlyFuelAccumulator = 0.0;
-    lastHourlyFuelUpdate = epochTime;
     Serial.println("Hourly fuel rolled over: " + String(hourlyFuelGallons[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE], 6) + 
                    " gal at " + String(hourlyFuelTimestamps[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE]));
+    hourlyFuelAccumulator = 0.0;
+    lastHourlyFuelUpdate = epochTime;
   }
 }
 
@@ -1597,10 +1602,11 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
   if ((unsigned long)(millis() - lastEvent) >= 2000 && serialActive) { // Overflow-safe
     lastEvent = millis();
     if (heaterStateNum >= 2 && heaterStateNum <= 5) heaterRunTime += 2;
+        float cycleFuelGallons = 0.0; // Default to zero when pump is off
     if (pumpHz > 0) {
       float pumpsPerCycle = pumpHz * 2;
       float cycleFuel = (pumpsPerCycle / 1000.0) * PUMP_FLOW_PER_1000_PUMPS;
-      float cycleFuelGallons = cycleFuel * ML_TO_GALLON;
+      cycleFuelGallons = cycleFuel * ML_TO_GALLON;
       fuelConsumption += cycleFuel;
       tankConsumption += cycleFuel;
       tankRuntime += 2;
@@ -1608,11 +1614,21 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       // Accumulate pump Hz for averaging
       pumpHzAccumulator += pumpHz;
       pumpHzSampleCount++;
-      // Update hourly fuel accumulator
-      updateHourlyFuelHistory(cycleFuelGallons, timeClient.getEpochTime());
     } else {
       currentGPH = 0;
     }
+
+    // Update hourly fuel accumulator
+    updateHourlyFuelHistory(cycleFuelGallons, timeClient.getEpochTime());
+
+    // Calculate power consumption and watt-hours
+    float validatedSupply = (supplyVoltage <= 9.0 || supplyVoltage > 15.0 || isnan(supplyVoltage)) ? 12.0 : supplyVoltage;
+    float totalPower = calculateTotalPower(validatedSupply);
+    float wattHours = totalPower * (2.0 / 3600.0); // 2-second contribution to watt-hours
+    updateWattHourHistory(wattHours, timeClient.getEpochTime());
+    avgWattHours24h = calculateRolling24HourAverageWattHours(); // Update rolling average
+
+
     if (glowPlugCurrent_Amps > 0.5) glowPlugHours += 2.0 / 3600.0;
     rollingAvgGPH = (alpha * currentGPH) + ((1 - alpha) * rollingAvgGPH);
     if (totalTankTime > 0) {
