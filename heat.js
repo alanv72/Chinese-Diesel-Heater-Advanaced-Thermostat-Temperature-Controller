@@ -1354,137 +1354,119 @@ var wattHourChart = new Chart(ctxWattHour, {
             messageDiv.style.display = "none";
           }
 
+          // Update hourly fuel chart
           if (data.hourlyFuelHistory) {
             const hourlyFuelData = JSON.parse(data.hourlyFuelHistory);
             const hourlyFuel = hourlyFuelData.hourlyFuelGallons || [];
             const hourlyTimestamps = hourlyFuelData.hourlyFuelTimestamps || [];
             const accumulator = hourlyFuelData.hourlyFuelAccumulator || 0;
 
-            const currentTime = Date.now();
-            const labels = hourlyTimestamps.map(ts => new Date(currentTime - (ts * 1000)));
-
-            // Set completed hours
+            // Use absolute epoch timestamps (seconds to milliseconds)
+            const labels = hourlyTimestamps.map(ts => new Date(ts * 1000));
+            
             hourlyFuelChart.data.labels = labels;
             hourlyFuelChart.data.datasets[0].data = hourlyFuel;
 
-            // Always add the current hour, even if accumulator is 0
-            const currentHourStart = new Date(Math.floor(currentTime / 3600000) * 3600000);
-            currentHourStart.setMinutes(0, 0, 0);
+            // Add current hour
+            const currentHourStart = new Date(Math.floor(data.epochTime / 3600) * 3600 * 1000);
             hourlyFuelChart.data.labels = [...labels, currentHourStart];
             hourlyFuelChart.data.datasets[1].data = [...new Array(hourlyFuel.length).fill(null), accumulator];
 
             hourlyFuelChart.update();
           }
 
-        // Update watt-hour chart
-        if (data.wattHourHistory) {
-          const wattHourData = JSON.parse(data.wattHourHistory);
-          const hourlyWattHours = wattHourData.wattHours || [];
-          const wattHourTimestamps = wattHourData.wattHourTimestamps || [];
-          const wattHourAccumulator = wattHourData.wattHourAccumulator || 0;
+          // Update watt-hour chart
+          if (data.wattHourHistory) {
+            const wattHourData = JSON.parse(data.wattHourHistory);
+            const hourlyWattHours = wattHourData.wattHours || [];
+            const wattHourTimestamps = wattHourData.wattHourTimestamps || [];
+            const wattHourAccumulator = wattHourData.wattHourAccumulator || 0;
 
-          const labels = wattHourTimestamps.map(ts => new Date(currentTime - (ts * 1000))); // Relative timestamps
+            // Use absolute epoch timestamps (seconds to milliseconds)
+            const labels = wattHourTimestamps.map(ts => new Date(ts * 1000));
+            
+            wattHourChart.data.labels = labels;
+            wattHourChart.data.datasets[0].data = hourlyWattHours;
 
-          wattHourChart.data.labels = labels;
-          wattHourChart.data.datasets[0].data = hourlyWattHours;
-
-          const currentHourStart = new Date(Math.floor(currentTime / 3600000) * 3600000);
-          currentHourStart.setMinutes(0, 0, 0);
-
-          if (wattHourAccumulator > 0) {
-            wattHourChart.data.labels = [...labels, currentHourStart];
-            wattHourChart.data.datasets[1].data = [...new Array(hourlyWattHours.length).fill(null), wattHourAccumulator];
-          } else {
-            wattHourChart.data.datasets[1].data = [];
-          }
-
-          wattHourChart.update();
-        }
-        // Display 24-hour average watt-hours
-        document.getElementById("avgWattHours24h").textContent = data.avgWattHours24h.toFixed(2) + " Wh/Hr";
-
-            // Update tempChart with sparsified datasets
-            if (tempChart) {
-              const tempHistory = data.tempHistory ? JSON.parse(data.tempHistory) : { tempHistory: [], timestamps: [] };
-              const outsideTempHistory = data.outsideTempHistory ? JSON.parse(data.outsideTempHistory) : { outsideTempHistory: [], timestamps: [] };
-              const pumpHzHistory = data.pumpHzHistory ? JSON.parse(data.pumpHzHistory) : { pumpHzHistory: [], timestamps: [] };
-
-              // Determine the longest timestamps array
-              const timelines = [
-                { name: 'tempHistory', timestamps: tempHistory.timestamps },
-                { name: 'outsideTempHistory', timestamps: outsideTempHistory.timestamps },
-                { name: 'pumpHzHistory', timestamps: pumpHzHistory.timestamps }
-              ];
-              const masterTimeline = timelines.reduce((max, current) => 
-                current.timestamps.length > max.timestamps.length ? current : max, 
-                timelines[0]
-              );
-
-            // console.log(`Master timeline: ${masterTimeline.name} with ${masterTimeline.timestamps.length} points`);
-              tempChart.data.labels = masterTimeline.timestamps.map(t => new Date(Date.now() - (t * 1000)));
-
-              // Filter each dataset
-              const filteredIndoor = filterDuplicates(tempHistory.tempHistory, tempHistory.timestamps);
-              const filteredOutdoor = filterDuplicates(outsideTempHistory.outsideTempHistory, outsideTempHistory.timestamps);
-              const filteredPumpHz = filterDuplicates(pumpHzHistory.pumpHzHistory, pumpHzHistory.timestamps);
-
-              // Align datasets with master timeline using a map for better matching
-              const alignData = (filteredValues, filteredTimestamps, masterTimestamps) => {
-                const data = new Array(masterTimestamps.length).fill(null);
-                filteredTimestamps.forEach((timestamp, index) => {
-                  const idx = masterTimestamps.indexOf(timestamp);
-                  if (idx !== -1) data[idx] = filteredValues[index];
-                });
-                return data;
-              };
-
-              // Align Indoor Temp
-              tempChart.data.datasets[0].data = alignData(filteredIndoor.values, filteredIndoor.timestamps, masterTimeline.timestamps);
-            //  console.log("Filtered Indoor Temp Data:", tempChart.data.datasets[0].data);
-
-              // Align Outdoor Temp
-              tempChart.data.datasets[1].data = alignData(filteredOutdoor.values, filteredOutdoor.timestamps, masterTimeline.timestamps);
-            //  console.log("Filtered Outdoor Temp Data:", tempChart.data.datasets[1].data);
-
-              // Align Pump Hz
-              tempChart.data.datasets[2].data = alignData(filteredPumpHz.values, filteredPumpHz.timestamps, masterTimeline.timestamps);
-            // console.log("Filtered Pump Hz Data:", tempChart.data.datasets[2].data);
-
-              tempChart.update();
+            const currentHourStart = new Date(Math.floor(data.epochTime / 3600) * 3600 * 1000);
+            if (wattHourAccumulator > 0) {
+              wattHourChart.data.labels = [...labels, currentHourStart];
+              wattHourChart.data.datasets[1].data = [...new Array(hourlyWattHours.length).fill(null), wattHourAccumulator];
+            } else {
+              wattHourChart.data.datasets[1].data = [];
             }
 
-        // Update voltage chart (including amps)
-        if (data.voltageHistory || data.ampsHistory) {
-          const voltageHistory = data.voltageHistory ? JSON.parse(data.voltageHistory) : { voltageHistory: [], timestamps: [] };
-          const ampsHistory = data.ampsHistory ? JSON.parse(data.ampsHistory) : { ampsHistory: [], timestamps: [] };
-          // Round each value in ampsHistory to the nearest tenth
-          ampsHistory.ampsHistory = ampsHistory.ampsHistory.map(value => Math.round(value * 10) / 10);
+            wattHourChart.update();
+          }
+          document.getElementById("avgWattHours24h").textContent = data.avgWattHours24h.toFixed(2) + " Wh/Hr";
 
-          // Combine timestamps from both voltage and amps to create a master timeline
-          const allTimestamps = [...new Set([...voltageHistory.timestamps, ...ampsHistory.timestamps])].sort((a, b) => a - b);
-          voltageChart.data.labels = allTimestamps.map(t => new Date(currentTime - (t * 1000))); // Relative timestamps
+          // Update tempChart with sparsified datasets
+          if (tempChart) {
+            const tempHistory = data.tempHistory ? JSON.parse(data.tempHistory) : { tempHistory: [], timestamps: [] };
+            const outsideTempHistory = data.outsideTempHistory ? JSON.parse(data.outsideTempHistory) : { outsideTempHistory: [], timestamps: [] };
+            const pumpHzHistory = data.pumpHzHistory ? JSON.parse(data.pumpHzHistory) : { pumpHzHistory: [], timestamps: [] };
 
-          // Filter duplicates
-          const filteredVoltage = filterDuplicates(voltageHistory.voltageHistory, voltageHistory.timestamps);
-          const filteredAmps = filterDuplicates(ampsHistory.ampsHistory , ampsHistory.timestamps);
+            // Determine the master timeline
+            const timelines = [
+              { name: 'tempHistory', timestamps: tempHistory.timestamps },
+              { name: 'outsideTempHistory', timestamps: outsideTempHistory.timestamps },
+              { name: 'pumpHzHistory', timestamps: pumpHzHistory.timestamps }
+            ];
+            const masterTimeline = timelines.reduce((max, current) => 
+              current.timestamps.length > max.timestamps.length ? current : max, 
+              timelines[0]
+            );
 
-          // Align data function
-          const alignData = (filteredValues, filteredTimestamps, masterTimestamps) => {
-            const data = new Array(masterTimestamps.length).fill(null);
-            filteredTimestamps.forEach((timestamp, index) => {
-              const idx = masterTimestamps.indexOf(timestamp);
-              if (idx !== -1) data[idx] = filteredValues[index];
-            });
-            return data;
-          };
+            // Use absolute epoch timestamps (seconds to milliseconds)
+            tempChart.data.labels = masterTimeline.timestamps.map(t => new Date(t * 1000));
 
-          // Update datasets
-          voltageChart.data.datasets[0].data = alignData(filteredVoltage.values, filteredVoltage.timestamps, allTimestamps);
-          voltageChart.data.datasets[1].data = alignData(filteredAmps.values, filteredAmps.timestamps, allTimestamps);
+            const filteredIndoor = filterDuplicates(tempHistory.tempHistory, tempHistory.timestamps);
+            const filteredOutdoor = filterDuplicates(outsideTempHistory.outsideTempHistory, outsideTempHistory.timestamps);
+            const filteredPumpHz = filterDuplicates(pumpHzHistory.pumpHzHistory, pumpHzHistory.timestamps);
 
-          voltageChart.update();
-        }
-          
+            const alignData = (filteredValues, filteredTimestamps, masterTimestamps) => {
+              const data = new Array(masterTimestamps.length).fill(null);
+              filteredTimestamps.forEach((timestamp, index) => {
+                const idx = masterTimestamps.indexOf(timestamp);
+                if (idx !== -1) data[idx] = filteredValues[index];
+              });
+              return data;
+            };
+
+            tempChart.data.datasets[0].data = alignData(filteredIndoor.values, filteredIndoor.timestamps, masterTimeline.timestamps);
+            tempChart.data.datasets[1].data = alignData(filteredOutdoor.values, filteredOutdoor.timestamps, masterTimeline.timestamps);
+            tempChart.data.datasets[2].data = alignData(filteredPumpHz.values, filteredPumpHz.timestamps, masterTimeline.timestamps);
+
+            tempChart.update();
+          }
+
+          // Update voltage chart (including amps)
+          if (data.voltageHistory || data.ampsHistory) {
+            const voltageHistory = data.voltageHistory ? JSON.parse(data.voltageHistory) : { voltageHistory: [], timestamps: [] };
+            const ampsHistory = data.ampsHistory ? JSON.parse(data.ampsHistory) : { ampsHistory: [], timestamps: [] };
+            ampsHistory.ampsHistory = ampsHistory.ampsHistory.map(value => Math.round(value * 10) / 10);
+
+            // Combine timestamps and use absolute epoch times
+            const allTimestamps = [...new Set([...voltageHistory.timestamps, ...ampsHistory.timestamps])].sort((a, b) => a - b);
+            voltageChart.data.labels = allTimestamps.map(t => new Date(t * 1000));
+
+            const filteredVoltage = filterDuplicates(voltageHistory.voltageHistory, voltageHistory.timestamps);
+            const filteredAmps = filterDuplicates(ampsHistory.ampsHistory, ampsHistory.timestamps);
+
+            const alignData = (filteredValues, filteredTimestamps, masterTimestamps) => {
+              const data = new Array(masterTimestamps.length).fill(null);
+              filteredTimestamps.forEach((timestamp, index) => {
+                const idx = masterTimestamps.indexOf(timestamp);
+                if (idx !== -1) data[idx] = filteredValues[index];
+              });
+              return data;
+            };
+
+            voltageChart.data.datasets[0].data = alignData(filteredVoltage.values, filteredVoltage.timestamps, allTimestamps);
+            voltageChart.data.datasets[1].data = alignData(filteredAmps.values, filteredAmps.timestamps, allTimestamps);
+
+            voltageChart.update();
+          }          
         }
       } catch (error) {
         console.error("Error processing SSE event:", error, "Raw data:", e.data);

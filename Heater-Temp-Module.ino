@@ -79,9 +79,9 @@ DallasTemperature sensors(&oneWire);
 
 // Wi-Fi credentials
 const char* primarySSID = "freedom";
-const char* primaryPassword = "!";
+const char* primaryPassword = "ontheroadagain!";
 const char* fallbackSSID = "littlesugar";
-const char* fallbackPassword = "!";
+const char* fallbackPassword = "netgearsucks!";
 
 // WiFi connection timing
 const unsigned long PRIMARY_CONNECT_TIME = 10000;
@@ -100,7 +100,7 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 10800000);
 
 // Weather API settings
-const char* WEATHER_API_KEY = "YOURKEY"; // Replace with your API key
+const char* WEATHER_API_KEY = "aeb9ccaba969c927fc2b8ce501da53a8"; // Replace with your API key
 String ZIP_CODE = "64856"; // Default value, loaded from Preferences
 const char*COUNTRY_CODE = "us"; // Adjust if not in the U.S.
 const char* WEATHER_API_HOST = "api.openweathermap.org";
@@ -280,17 +280,14 @@ float calculateDuctFanAmps(float voltage) {
 // Function to calculate wall fan amps based on voltage
 float calculateWallFanAmps(float voltage) {
   if (voltage <= 0) return 0.0;
-  if (voltage <= 7.0) {
-    // Linear from 0V (0A) to 7V (1.9A)
-    return (voltage / 7.0) * 1.9; // Slope ≈ 0.27143 A/V
-  } else if (voltage <= 9.5) {
-    // Linear from 7V (1.9A) to 9.5V (2.8A)
-    float slope = (2.8 - 1.9) / (9.5 - 7.0); // 0.36 A/V
-    return 1.9 + slope * (voltage - 7.0);
+  if (voltage <= 6.0) {
+    return (voltage / 6.0) * 0.88;
+  } else if (voltage <= 9.0) {
+    float slope = (1.2 - 0.88) / (9.0 - 6.0); // 0.10667 A/V
+    return 0.88 + slope * (voltage - 6.0);
   } else {
-    // Linear from 9.5V (2.8A) to 12V (4.8A) and beyond (e.g., 14V, 6.4A)
-    float slope = (4.8 - 2.8) / (12.0 - 9.5); // 0.8 A/V
-    return 2.8 + slope * (voltage - 9.5);
+    float slope = (1.3 - 1.2) / (12.0 - 9.0); // 0.03333 A/V
+    return 1.2 + slope * (voltage - 9.0);
   }
 }
 
@@ -343,7 +340,7 @@ void updateWattHourHistory(float wattHours, unsigned long epochTime) {
     }
     lastHourlyUpdate = latestWattTime > 0 ? latestWattTime + 3600 : epochTime - (epochTime % 3600);
     initialized = true;
-    if (DEBUG) Serial.println("Initialized lastHourlyUpdate to " + String(lastHourlyUpdate));
+    Serial.println("Initialized lastHourlyUpdate to " + String(lastHourlyUpdate));
   }
 
   wattHourAccumulator += wattHours;
@@ -356,7 +353,7 @@ void updateWattHourHistory(float wattHours, unsigned long epochTime) {
     wattHourIndex = (wattHourIndex + 1) % WATT_HOUR_HISTORY_SIZE;
     wattHourAccumulator = 0.0;
     lastHourlyUpdate = epochTime;
-    if (DEBUG) Serial.println("Watt-hour rolled over, reset accumulator");
+    Serial.println("Watt-hour rolled over, reset accumulator");
   }
 }
 
@@ -372,26 +369,21 @@ void updateHourlyFuelHistory(float fuelGallons, unsigned long epochTime) {
     }
     lastHourlyFuelUpdate = latestFuelTime > 0 ? latestFuelTime + 3600 : epochTime - (epochTime % 3600);
     fuelInitialized = true;
-    if (DEBUG) Serial.println("Initialized lastHourlyFuelUpdate to " + String(lastHourlyFuelUpdate));
+    Serial.println("Initialized lastHourlyFuelUpdate to " + String(lastHourlyFuelUpdate));
   }
 
-  // Accumulate fuel only if there’s consumption
-  if (fuelGallons > 0) {
-    hourlyFuelAccumulator += fuelGallons;
-    if (DEBUG) Serial.println("Added " + String(fuelGallons, 6) + " gal, hourlyFuelAccumulator now " + String(hourlyFuelAccumulator, 6));
-  }
+  hourlyFuelAccumulator += fuelGallons;
 
-  // Check for hourly rollover regardless of fuel input
   unsigned long currentHourStart = epochTime - (epochTime % 3600);
   unsigned long lastHourStart = lastHourlyFuelUpdate - (lastHourlyFuelUpdate % 3600);
   if (currentHourStart > lastHourStart && fuelInitialized) {
     hourlyFuelGallons[hourlyFuelIndex] = hourlyFuelAccumulator;
     hourlyFuelTimestamps[hourlyFuelIndex] = currentHourStart - 3600;
     hourlyFuelIndex = (hourlyFuelIndex + 1) % HOURLY_FUEL_SIZE;
-    if (DEBUG) Serial.println("Hourly fuel rolled over: " + String(hourlyFuelGallons[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE], 6) + 
-                   " gal at " + String(hourlyFuelTimestamps[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE]));
     hourlyFuelAccumulator = 0.0;
     lastHourlyFuelUpdate = epochTime;
+    Serial.println("Hourly fuel rolled over: " + String(hourlyFuelGallons[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE], 6) + 
+                   " gal at " + String(hourlyFuelTimestamps[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE]));
   }
 }
 
@@ -761,6 +753,21 @@ void setup() {
   //     }
   //   }
   //}
+  for (int i = 0; i < HISTORY_FILES; i++) {
+    String filename = "/history_" + String(i) + ".json";
+    if (SPIFFS.exists(filename)) {
+      File file = SPIFFS.open(filename, FILE_READ);
+      if (file) {
+        DynamicJsonDocument doc(24576);
+        DeserializationError error = deserializeJson(doc, file);
+        file.close();
+        if (error) {
+          Serial.println("Removing corrupted file: " + filename + " - " + error.c_str());
+          SPIFFS.remove(filename);
+        }
+      }
+    }
+  }
 
   Serial.println("Loaded currentFileIndex: " + String(currentFileIndex));
   printMemoryStats();
@@ -917,7 +924,7 @@ void setup() {
     response->addHeader("Connection", "keep-alive");
     response->addHeader("Access-Control-Allow-Origin", "*");
     request->send(response);
-    if (DEBUG) Serial.println("Event stream response sent...");
+    Serial.println("Event stream response sent...");
   });
 
   server.on("/primepump", HTTP_POST, [](AsyncWebServerRequest* request) {
@@ -973,18 +980,18 @@ void setup() {
       if (SPIFFS.exists(fullPath)) {
         if (SPIFFS.remove(fullPath)) {
           request->send(200, "text/plain", "File deleted: " + filename);
-          if (DEBUG) Serial.println("Deleted file: " + filename);
+          Serial.println("Deleted file: " + filename);
         } else {
           request->send(500, "text/plain", "Failed to delete file: " + filename);
-          if (DEBUG) Serial.println("Failed to delete: " + filename);
+          Serial.println("Failed to delete: " + filename);
         }
       } else {
         request->send(404, "text/plain", "File not found: " + filename);
-        if (DEBUG) Serial.println("File not found: " + filename);
+        Serial.println("File not found: " + filename);
       }
     } else {
       request->send(400, "text/plain", "No filename provided");
-      if (DEBUG) Serial.println("No filename in delete request");
+      Serial.println("No filename in delete request");
     }
   });
 
@@ -1041,13 +1048,13 @@ void setup() {
     sendData(data1, 24);
     //controlEnable = 1; // Enable thermostat control
     cshut = 0; // Reset shutdown flag
-    Serial.println("Heater on command sent");
+    if (DEBUG) Serial.println("Heater on command sent");
     request->send(200, "text/plain", "Heater on command sent");
   });
 
   server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest* request) {
   if (request->hasParam("confirm") && request->getParam("confirm")->value() == "DOIT" && eventen) {
-    Serial.println("Reboot request received with confirmation");
+    if (DEBUG) Serial.println("Reboot request received with confirmation");
     request->send(200, "text/plain", "Rebooting ESP32...");
     saveHistoryToSPIFFS();
     end();
@@ -1066,7 +1073,7 @@ void setup() {
         if (newZip != ZIP_CODE) { // Only update if changed
           ZIP_CODE = newZip;
           preferences.putString("zipcode", ZIP_CODE);
-          if (DEBUG) Serial.println("Zip code updated to: " + ZIP_CODE);
+          Serial.println("Zip code updated to: " + ZIP_CODE);
           updateWeatherData(); // Fetch weather immediately on change
         }
         request->send(200, "text/plain", "Zip code set to " + ZIP_CODE);
@@ -1108,7 +1115,7 @@ void setup() {
 
   events.onConnect([](AsyncEventSourceClient *client){
     if(client->lastId()){
-      if (DEBUG) Serial.printf("Client reconnected! Last message ID that it got is: %u\n",
+      Serial.printf("Client reconnected! Last message ID that it got is: %u\n",
       client->lastId());
     }
     // send event with message "hello!", id current millis
@@ -1285,14 +1292,14 @@ void loop() {
         uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
         sendData(data1, 24);
         flashLength = 100;
-        Serial.println(" Thermostat Starting Heater");
+        Serial.println("  Starting Heater");
       }
       if (setTemperature <= (currentTemperature - 1) && (heaterStateNum >= 1 && heaterStateNum <= 5)) {
         uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
         sendData(data1, 24);
         cshut = 1;
         flashLength = 3000;
-        Serial.println(" Thermostat Stopping Heater");
+        Serial.println("  Stopping Heater");
       }
     }
 
@@ -1590,11 +1597,10 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
   if ((unsigned long)(millis() - lastEvent) >= 2000 && serialActive) { // Overflow-safe
     lastEvent = millis();
     if (heaterStateNum >= 2 && heaterStateNum <= 5) heaterRunTime += 2;
-    float cycleFuelGallons = 0.0;
     if (pumpHz > 0) {
       float pumpsPerCycle = pumpHz * 2;
       float cycleFuel = (pumpsPerCycle / 1000.0) * PUMP_FLOW_PER_1000_PUMPS;
-      cycleFuelGallons = cycleFuel * ML_TO_GALLON;
+      float cycleFuelGallons = cycleFuel * ML_TO_GALLON;
       fuelConsumption += cycleFuel;
       tankConsumption += cycleFuel;
       tankRuntime += 2;
@@ -1602,13 +1608,11 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       // Accumulate pump Hz for averaging
       pumpHzAccumulator += pumpHz;
       pumpHzSampleCount++;
+      // Update hourly fuel accumulator
+      updateHourlyFuelHistory(cycleFuelGallons, timeClient.getEpochTime());
     } else {
       currentGPH = 0;
     }
-
-    // Update hourly fuel accumulator
-    updateHourlyFuelHistory(cycleFuelGallons, timeClient.getEpochTime());
-
     if (glowPlugCurrent_Amps > 0.5) glowPlugHours += 2.0 / 3600.0;
     rollingAvgGPH = (alpha * currentGPH) + ((1 - alpha) * rollingAvgGPH);
     if (totalTankTime > 0) {
@@ -1923,13 +1927,12 @@ String serializeTempHistory() {
   JsonArray tempArray = tempJsonDoc.createNestedArray("tempHistory");
   JsonArray timeArray = tempJsonDoc.createNestedArray("timestamps");
 
-  // Use current epoch time in seconds
   unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
     int realIndex = (tempIndex + i) % TEMP_HISTORY_SIZE; // Correct circular index
     if (tempHistory[realIndex] > -100 && (currentTime - tempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
       tempArray.add(celsiusToFahrenheit(tempHistory[realIndex]));
-      timeArray.add(currentTime - tempTimestamps[realIndex]); // Time difference in seconds
+      timeArray.add(tempTimestamps[realIndex]); // Use absolute epoch timestamp
     }
   }
   String output;
@@ -1942,13 +1945,12 @@ String serializeVoltageHistory() {
   JsonArray voltageArray = voltageJsonDoc.createNestedArray("voltageHistory");
   JsonArray timeArray = voltageJsonDoc.createNestedArray("timestamps");
 
-  // Use current epoch time in seconds
   unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
     int realIndex = (voltageIndex + i) % VOLTAGE_HISTORY_SIZE;
     if (voltageHistory[realIndex] >= 0 && (currentTime - voltageTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
       voltageArray.add(voltageHistory[realIndex]);
-      timeArray.add(currentTime - voltageTimestamps[realIndex]); // Time difference in seconds
+      timeArray.add(voltageTimestamps[realIndex]); // Use absolute epoch timestamp
     }
   }
   String output;
@@ -1966,7 +1968,7 @@ String serializePumpHzHistory() {
     int realIndex = (pumpHzIndex + i) % PUMP_HZ_HISTORY_SIZE;
     if (pumpHzHistory[realIndex] >= 0 && (currentTime - pumpHzTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
       pumpHzArray.add(pumpHzHistory[realIndex]);
-      timeArray.add(currentTime - pumpHzTimestamps[realIndex]); // Time difference in seconds
+      timeArray.add(pumpHzTimestamps[realIndex]); // Use absolute epoch timestamp
     }
   }
   String output;
@@ -1976,21 +1978,21 @@ String serializePumpHzHistory() {
 
 // New serialization function for outdoor temperature
 String serializeOutsideTempHistory() {
-    DynamicJsonDocument outsideTempJsonDoc(8192); // Adjust size as necessary
-    JsonArray outsideTempArray = outsideTempJsonDoc.createNestedArray("outsideTempHistory");
-    JsonArray timeArray = outsideTempJsonDoc.createNestedArray("timestamps");
+  DynamicJsonDocument outsideTempJsonDoc(8192); // Adjust size as necessary
+  JsonArray outsideTempArray = outsideTempJsonDoc.createNestedArray("outsideTempHistory");
+  JsonArray timeArray = outsideTempJsonDoc.createNestedArray("timestamps");
 
-    unsigned long currentTime = timeClient.getEpochTime();
-    for (int i = 0; i < OUTSIDE_TEMP_HISTORY_SIZE; i++) {
-        int realIndex = (outsideTempIndex + i) % OUTSIDE_TEMP_HISTORY_SIZE;
-        if (!isnan(outsideTempHistory[realIndex]) && (currentTime - outsideTempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
-            outsideTempArray.add(outsideTempHistory[realIndex]); // Already in Fahrenheit
-            timeArray.add(currentTime - outsideTempTimestamps[realIndex]); // Time difference in seconds
-        }
+  unsigned long currentTime = timeClient.getEpochTime();
+  for (int i = 0; i < OUTSIDE_TEMP_HISTORY_SIZE; i++) {
+    int realIndex = (outsideTempIndex + i) % OUTSIDE_TEMP_HISTORY_SIZE;
+    if (!isnan(outsideTempHistory[realIndex]) && (currentTime - outsideTempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
+      outsideTempArray.add(outsideTempHistory[realIndex]); // Already in Fahrenheit
+      timeArray.add(outsideTempTimestamps[realIndex]); // Use absolute epoch timestamp
     }
-    String output;
-    serializeJson(outsideTempJsonDoc, output);
-    return output;
+  }
+  String output;
+  serializeJson(outsideTempJsonDoc, output);
+  return output;
 }
 
 String serializeHourlyFuelHistory() {
@@ -2003,7 +2005,7 @@ String serializeHourlyFuelHistory() {
     int realIndex = (hourlyFuelIndex - HOURLY_FUEL_SIZE + i + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE;
     if (hourlyFuelTimestamps[realIndex] > 0 && (currentTime - hourlyFuelTimestamps[realIndex]) <= 86400) { // 24 hours
       fuelArray.add(hourlyFuelGallons[realIndex]);
-      timeArray.add(currentTime - hourlyFuelTimestamps[realIndex]); // Relative time in seconds ago
+      timeArray.add(hourlyFuelTimestamps[realIndex]); // Use absolute epoch timestamp
     }
   }
   fuelJsonDoc["hourlyFuelAccumulator"] = hourlyFuelAccumulator; // Current hour’s running total
@@ -2023,7 +2025,7 @@ String serializeWattHourHistory() {
     int realIndex = (wattHourIndex - WATT_HOUR_HISTORY_SIZE + i + WATT_HOUR_HISTORY_SIZE) % WATT_HOUR_HISTORY_SIZE;
     if (wattHourTimestamps[realIndex] > 0 && (currentTime - wattHourTimestamps[realIndex]) <= 86400) { // 24 hours
       wattHourArray.add(wattHourHistory[realIndex]);
-      timeArray.add(currentTime - wattHourTimestamps[realIndex]); // Relative time in seconds ago
+      timeArray.add(wattHourTimestamps[realIndex]); // Use absolute epoch timestamp
     }
   }
   wattHourJsonDoc["wattHourAccumulator"] = wattHourAccumulator; // Current hour’s running total
@@ -2043,7 +2045,7 @@ String serializeAmpsHistory() {
     int realIndex = (ampsIndex + i) % AMPS_HISTORY_SIZE;
     if (!isnan(ampsHistory[realIndex]) && (currentTime - ampsTimestamps[realIndex]) <= 43200) { // 12 hours
       ampsArray.add(ampsHistory[realIndex]);
-      timeArray.add(currentTime - ampsTimestamps[realIndex]); // Time difference in seconds
+      timeArray.add(ampsTimestamps[realIndex]); // Use absolute epoch timestamp
     }
   }
   String output;
@@ -2146,9 +2148,8 @@ void saveHistoryToSPIFFS() {
     }
   }
 
-  // Save amps history independently (aligned with serializeAmpsHistory)
   int validAmpsEntries = 0;
-  unsigned long twelveHoursAgo = currentTime - 43200; // 12 hours ago
+  unsigned long twelveHoursAgo = currentTime - 43200;
   for (int i = 0; i < AMPS_HISTORY_SIZE; i++) {
     int idx = (ampsIndex - AMPS_HISTORY_SIZE + i + AMPS_HISTORY_SIZE) % AMPS_HISTORY_SIZE;
     if (!isnan(ampsHistory[idx]) && ampsTimestamps[idx] > 0 &&
@@ -2164,12 +2165,10 @@ void saveHistoryToSPIFFS() {
         ampsArray.add(ampsHistory[idx]);
         ampsTimeArray.add(ampsTimestamps[idx]);
         validAmpsEntries++;
-        if (DEBUG) Serial.printf("Saving amps: %.2f A at %lu\n", ampsHistory[idx], ampsTimestamps[idx]);
       }
     }
   }
 
-  // Save all hourly fuel data
   for (int i = 0; i < HOURLY_FUEL_SIZE; i++) {
     int realIndex = (hourlyFuelIndex - HOURLY_FUEL_SIZE + i + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE;
     if (hourlyFuelTimestamps[realIndex] > 0 && 
@@ -2193,7 +2192,6 @@ void saveHistoryToSPIFFS() {
   doc["hourlyFuelAccumulator"] = hourlyFuelAccumulator;
   doc["hourlyFuelAccumulatorTime"] = currentTime;
 
-  // Save all watt-hour data within the last 24 hours
   int validWattHourEntries = 0;
   unsigned long oneDayAgo = currentTime - 86400;
   for (int i = 0; i < WATT_HOUR_HISTORY_SIZE; i++) {
@@ -2221,27 +2219,27 @@ void saveHistoryToSPIFFS() {
   doc["wattHourAccumulator"] = wattHourAccumulator;
   doc["wattHourAccumulatorTime"] = currentTime;
 
-  if (DEBUG) Serial.println("Saved hourly fuel entries: " + String(hourlyFuelArray.size()) + 
-                 ", watt-hour entries: " + String(wattHourArray.size()) +
-                 ", amps entries: " + String(ampsArray.size()));
-
   if (validEntries > 0 || validAmpsEntries > 0 || validWattHourEntries > 0 || hourlyFuelArray.size() > 0) {
+    size_t jsonSize = measureJson(doc) + 1; // Estimate JSON size
+    if (SPIFFS.totalBytes() - SPIFFS.usedBytes() < jsonSize) {
+      saveError = "Insufficient SPIFFS space for " + filename + " (" + String(jsonSize) + " bytes needed)";
+      Serial.println(saveError);
+      return;
+    }
     File file = SPIFFS.open(filename, FILE_WRITE);
     if (!file) {
       saveError = "Failed to open " + filename + " for writing";
       Serial.println(saveError);
       return;
     }
-
     size_t bytesWritten = serializeJson(doc, file);
     file.close();
-
-    if (bytesWritten == 0) {
-      saveError = "Failed to write JSON to " + filename;
+    if (bytesWritten == 0 || bytesWritten < jsonSize / 2) { // Check for partial write
+      saveError = "Incomplete write to " + filename + " (" + String(bytesWritten) + " bytes)";
       Serial.println(saveError);
       SPIFFS.remove(filename);
     } else {
-      if (DEBUG) Serial.println("Wrote " + String(bytesWritten) + " bytes to " + filename + " with " + 
+      Serial.println("Wrote " + String(bytesWritten) + " bytes to " + filename + " with " + 
                      String(tempArray.size()) + " temp entries, " + 
                      String(voltArray.size()) + " voltage entries, " +
                      String(ampsArray.size()) + " amps entries, " +
@@ -2263,7 +2261,6 @@ bool loadHistoryFromSPIFFS() {
   unsigned long currentTime = timeClient.getEpochTime();
   Serial.println("Current epoch time: " + String(currentTime));
 
-  // Initialize arrays but preserve accumulators until explicitly loaded
   for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
     tempHistory[i] = -200.0;
     tempTimestamps[i] = 0;
@@ -2317,11 +2314,10 @@ bool loadHistoryFromSPIFFS() {
   }
   int totalAmpsEntries = 0;
 
-  const unsigned long LAST_12_HOURS = 43200UL; // 12 hours
-  const unsigned long LAST_24_HOURS = 86400UL; // 24 hours
+  const unsigned long LAST_12_HOURS = 43200UL;
+  const unsigned long LAST_24_HOURS = 86400UL;
   const unsigned long MIN_VALID_EPOCH = 1710000000UL;
 
-  // Find the most recent file for accumulators
   int latestFileIndex = -1;
   unsigned long latestWattTime = 0;
   float loadedWattHourAccumulator = 0.0;
@@ -2362,40 +2358,34 @@ bool loadHistoryFromSPIFFS() {
     }
   }
 
-  // Restore accumulators from the most recent file
   if (latestFileIndex >= 0) {
     String filename = "/history_" + String(latestFileIndex) + ".json";
     Serial.println("Loading accumulators from most recent file: " + filename);
 
     unsigned long currentHourStart = currentTime - (currentTime % 3600);
-    unsigned long wattHourStart = wattHourAccumulatorTime - (wattHourAccumulatorTime % 3600);
-    unsigned long fuelHourStart = fuelAccumulatorTime - (fuelAccumulatorTime % 3600);
     unsigned long prevHourStart = currentHourStart - 3600;
 
-    if (loadedWattHourAccumulator > 0 && 
-        (wattHourStart == currentHourStart || wattHourStart == prevHourStart)) {
+    if (loadedWattHourAccumulator > 0 && wattHourAccumulatorTime >= prevHourStart && wattHourAccumulatorTime < currentHourStart + 3600) {
       wattHourAccumulator = loadedWattHourAccumulator;
-      Serial.printf("Restored wattHourAccumulator: %.2f Wh from %s (saved at %lu, hour %lu)\n", 
-                    wattHourAccumulator, filename.c_str(), wattHourAccumulatorTime, wattHourStart);
+      if (DEBUG) Serial.printf("Restored wattHourAccumulator: %.2f Wh from %s (saved at %lu)\n", 
+                    wattHourAccumulator, filename.c_str(), wattHourAccumulatorTime);
     } else {
-      Serial.printf("wattHourAccumulator %.2f not restored: hour mismatch or invalid (saved %lu, hour %lu, current %lu)\n", 
-                    loadedWattHourAccumulator, wattHourAccumulatorTime, wattHourStart, currentHourStart);
+      Serial.printf("wattHourAccumulator %.2f not restored: time %lu outside valid range (prev %lu, current %lu)\n", 
+                    loadedWattHourAccumulator, wattHourAccumulatorTime, prevHourStart, currentHourStart);
     }
 
-    if (loadedFuelAccumulator > 0 && 
-        (fuelHourStart == currentHourStart || fuelHourStart == prevHourStart)) {
+    if (loadedFuelAccumulator > 0 && fuelAccumulatorTime >= prevHourStart && fuelAccumulatorTime < currentHourStart + 3600) {
       hourlyFuelAccumulator = loadedFuelAccumulator;
-      Serial.printf("Restored hourlyFuelAccumulator: %.6f gal from %s (saved at %lu, hour %lu)\n", 
-                    hourlyFuelAccumulator, filename.c_str(), fuelAccumulatorTime, fuelHourStart);
+      if (DEBUG) Serial.printf("Restored hourlyFuelAccumulator: %.6f gal from %s (saved at %lu)\n", 
+                    hourlyFuelAccumulator, filename.c_str(), fuelAccumulatorTime);
     } else {
-      Serial.printf("hourlyFuelAccumulator %.6f not restored: hour mismatch or invalid (saved %lu, hour %lu, current %lu)\n", 
-                    loadedFuelAccumulator, fuelAccumulatorTime, fuelHourStart, currentHourStart);
+      Serial.printf("hourlyFuelAccumulator %.6f not restored: time %lu outside valid range (prev %lu, current %lu)\n", 
+                    loadedFuelAccumulator, fuelAccumulatorTime, prevHourStart, currentHourStart);
     }
   } else {
     Serial.println("No recent history files found for accumulators within 24 hours");
   }
 
-  // Load all history data from all files
   for (int i = 0; i < HISTORY_FILES; i++) {
     String filename = "/history_" + String(i) + ".json";
     if (!SPIFFS.exists(filename)) continue;
@@ -2429,7 +2419,6 @@ bool loadHistoryFromSPIFFS() {
     JsonArray wattHourArray = doc["wattHours"];
     JsonArray wattTimeArray = doc["wattHourTimestamps"];
 
-    // Load temperature, voltage, pumpHz, and outdoor temp history
     size_t maxEntries = tempArray.size();
     for (size_t j = 0; j < maxEntries && totalEntries < TEMP_HISTORY_SIZE; j++) {
       if (!tempArray[j].is<float>() || !tempTimeArray[j].is<unsigned long>()) continue;
@@ -2446,7 +2435,6 @@ bool loadHistoryFromSPIFFS() {
       if (entries[totalEntries].temp > -100) totalEntries++;
     }
 
-    // Load amps history
     size_t ampsEntriesCount = ampsArray.size();
     if (ampsEntriesCount > 0) {
       Serial.println("Loading " + String(ampsEntriesCount) + " amps entries from " + filename);
@@ -2457,13 +2445,12 @@ bool loadHistoryFromSPIFFS() {
             ampsEntries[totalAmpsEntries].amps = ampsArray[j].as<float>();
             ampsEntries[totalAmpsEntries].ampsTime = timestamp;
             totalAmpsEntries++;
-            Serial.printf("Loaded amps: %.2f A at %lu\n", ampsEntries[totalAmpsEntries - 1].amps, timestamp);
+            if (DEBUG) Serial.printf("Loaded amps: %.2f A at %lu\n", ampsEntries[totalAmpsEntries - 1].amps, timestamp);
           }
         }
       }
     }
 
-    // Load hourly fuel history
     size_t hourlyEntries = hourlyFuelArray.size();
     if (hourlyEntries > 0) {
       Serial.println("Loading " + String(hourlyEntries) + " hourly fuel entries from " + filename);
@@ -2474,14 +2461,13 @@ bool loadHistoryFromSPIFFS() {
             hourlyFuelGallons[hourlyFuelIndex] = hourlyFuelArray[j].as<float>();
             hourlyFuelTimestamps[hourlyFuelIndex] = timestamp;
             hourlyFuelIndex = (hourlyFuelIndex + 1) % HOURLY_FUEL_SIZE;
-            Serial.printf("Loaded hourly fuel: %.6f gal at %lu\n", 
-                          hourlyFuelGallons[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE], timestamp);
+            if (DEBUG) Serial.printf("Loaded hourly fuel: %.6f gal at %lu\n", 
+                                     hourlyFuelGallons[(hourlyFuelIndex - 1 + HOURLY_FUEL_SIZE) % HOURLY_FUEL_SIZE], timestamp);
           }
         }
       }
     }
 
-    // Load watt-hour history
     size_t wattHourEntries = wattHourArray.size();
     if (wattHourEntries > 0) {
       Serial.println("Loading " + String(wattHourEntries) + " watt-hour entries from " + filename);
@@ -2492,15 +2478,14 @@ bool loadHistoryFromSPIFFS() {
             wattHourHistory[wattHourIndex] = wattHourArray[j].as<float>();
             wattHourTimestamps[wattHourIndex] = timestamp;
             wattHourIndex = (wattHourIndex + 1) % WATT_HOUR_HISTORY_SIZE;
-            Serial.printf("Loaded watt-hour: %.2f Wh at %lu\n", 
-                          wattHourHistory[(wattHourIndex - 1 + WATT_HOUR_HISTORY_SIZE) % WATT_HOUR_HISTORY_SIZE], timestamp);
+            if (DEBUG) Serial.printf("Loaded watt-hour: %.2f Wh at %lu\n", 
+                                     wattHourHistory[(wattHourIndex - 1 + WATT_HOUR_HISTORY_SIZE) % WATT_HOUR_HISTORY_SIZE], timestamp);
           }
         }
       }
     }
   }
 
-  // Process temperature, voltage, pumpHz, and outdoor temp history
   if (totalEntries > 0) {
     qsort(entries, totalEntries, sizeof(HistoryEntry),
           [](const void* a, const void* b) -> int {
@@ -2533,7 +2518,6 @@ bool loadHistoryFromSPIFFS() {
     }
   }
 
-  // Process amps history
   if (totalAmpsEntries > 0) {
     qsort(ampsEntries, totalAmpsEntries, sizeof(AmpsEntry),
           [](const void* a, const void* b) -> int {
