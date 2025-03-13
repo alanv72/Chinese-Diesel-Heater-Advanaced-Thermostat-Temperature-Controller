@@ -1125,7 +1125,7 @@ var wattHourChart = new Chart(ctxWattHour, {
           document.getElementById("currentTime").querySelector("span").textContent = localTime;
           document.getElementById("currentDate").querySelector("span").textContent = localDate;
 
-          document.getElementById("currentTemp").textContent = data.currentTemp.toFixed(1) + "°F";
+          document.getElementById("currentTemp").textContent = data.currentTemp + "°F";
           document.getElementById("heaterState").textContent = data.state;
           document.getElementById("runtime").textContent = data.heaterHourMeter.toFixed(2) + "Hrs";
           //document.getElementById("currentTime").querySelector("span").textContent = data.time;
@@ -1306,10 +1306,10 @@ var wattHourChart = new Chart(ctxWattHour, {
           frostModeLabel.textContent = data.frostMode ? "Frost Mode On" : "Frost Mode Off";
           frostModeLabel.classList.toggle("active", data.frostMode);
           document.getElementById("frostModeEnable").checked = data.frostMode;
-          document.getElementById("heaterInternalTemp").textContent = (data.heaterinternalTemp * 9/5 + 32).toFixed(1) + "°F";
+          document.getElementById("heaterInternalTemp").textContent = data.heaterinternalTemp + "°F";
           document.getElementById("glowPlugCurrent").textContent = data.glowPlugCurrent_Amps.toFixed(2);
-          document.getElementById("pumpHz").textContent = data.pumpHz.toFixed(1);
-          document.getElementById("walltemp").textContent = data.walltemp.toFixed(1) + "°F";
+          document.getElementById("pumpHz").textContent = data.pumpHz;
+          document.getElementById("walltemp").textContent = data.walltemp + "°F";
 
           var tankSizeGallons = data.tankSizeGallons;
           var fuelConsumedTank = data.fuelConsumedTank;

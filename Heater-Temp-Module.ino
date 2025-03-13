@@ -1776,7 +1776,7 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       tempHistory[tempIndex] = currentTemperature;
       tempTimestamps[tempIndex] = epochTime;
       tempIndex = (tempIndex + 1) % TEMP_HISTORY_SIZE;
-      outsideTempHistory[outsideTempIndex] = outsideTempF; // Store in Fahrenheit
+      outsideTempHistory[outsideTempIndex] = round(outsideTempF); // Store in Fahrenheit
       outsideTempTimestamps[outsideTempIndex] = epochTime;
       outsideTempIndex = (outsideTempIndex + 1) % OUTSIDE_TEMP_HISTORY_SIZE;
       voltageHistory[voltageIndex] = supplyVoltage;
@@ -1800,8 +1800,8 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
     }
 
     DynamicJsonDocument jsonDoc(1024);
-    jsonDoc["currentTemp"] = celsiusToFahrenheit(currentTemperature);
-    jsonDoc["setTemp"] = celsiusToFahrenheit(setTemperature);
+    jsonDoc["currentTemp"] = round(celsiusToFahrenheit(currentTemperature));
+    jsonDoc["setTemp"] = round(celsiusToFahrenheit(setTemperature));
     jsonDoc["targettemp"] = round(celsiusToFahrenheit(targetSetTemperature));
     jsonDoc["tempadjusting"] = temperatureChangeByWeb;
     jsonDoc["state"] = heaterState[heaterStateNum];
@@ -1828,11 +1828,11 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
     jsonDoc["remainingRuntimeHours"] = remainingRuntimeHours;
     jsonDoc["rollingAvgGPH"] = rollingAvgGPH;
     jsonDoc["rollingRuntimeHours"] = (rollingRuntimeHours > 2190.0 || isnan(rollingRuntimeHours) || abs(rollingRuntimeHours) < 0.0001f) ? JsonVariant() : rollingRuntimeHours;
-    jsonDoc["heaterinternalTemp"] = heaterinternalTemp;
+    jsonDoc["heaterinternalTemp"] = round(celsiusToFahrenheit(heaterinternalTemp));
     jsonDoc["glowPlugCurrent_Amps"] = glowPlugCurrent_Amps;
     jsonDoc["pumpHz"] = pumpHz;
     jsonDoc["controlEnable"] = controlEnable;
-    jsonDoc["walltemp"] = celsiusToFahrenheit(walltemp);
+    jsonDoc["walltemp"] = round(celsiusToFahrenheit(walltemp));
     jsonDoc["walltemptrigger"] = (walltemptrigger * 9.0 / 5.0);
     jsonDoc["tempwarn"] = tempwarn;
     jsonDoc["ductfan"] = ductfan;
@@ -2030,7 +2030,7 @@ String serializeTempHistory() {
   for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
     int realIndex = (tempIndex + i) % TEMP_HISTORY_SIZE; // Correct circular index
     if (tempHistory[realIndex] > -100 && (currentTime - tempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
-      tempArray.add(celsiusToFahrenheit(tempHistory[realIndex]));
+      tempArray.add(round(celsiusToFahrenheit(tempHistory[realIndex])));
       timeArray.add(tempTimestamps[realIndex]); // Use absolute epoch timestamp
     }
   }
