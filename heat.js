@@ -1277,11 +1277,11 @@ var wattHourChart = new Chart(ctxWattHour, {
           // 1. Fuel Gallons Total (24hr Gals)
           if (data.hourlyFuelHistory) {
             const hourlyFuelData = JSON.parse(data.hourlyFuelHistory);
-            const hourlyFuelGallons = hourlyFuelData.hourlyFuelGallons || [];
+            const hourlyFuelHistory = hourlyFuelData.hourlyFuelHistory || [];
             const hourlyFuelAccumulator = hourlyFuelData.hourlyFuelAccumulator || 0;
             
             // Sum historical gallons and add accumulator
-            const totalGallons = hourlyFuelGallons.reduce((sum, value) => sum + value, 0) + hourlyFuelAccumulator;
+            const totalGallons = hourlyFuelHistory.reduce((sum, value) => sum + value, 0) + hourlyFuelAccumulator;
             document.getElementById("totalGal").textContent = totalGallons.toFixed(2) + " Gal";
           }
 
@@ -1357,7 +1357,7 @@ var wattHourChart = new Chart(ctxWattHour, {
           // Update hourly fuel chart
           if (data.hourlyFuelHistory) {
             const hourlyFuelData = JSON.parse(data.hourlyFuelHistory);
-            const hourlyFuel = hourlyFuelData.hourlyFuelGallons || [];
+            const hourlyFuel = hourlyFuelData.hourlyFuelHistory || [];
             const hourlyTimestamps = hourlyFuelData.hourlyFuelTimestamps || [];
             const accumulator = hourlyFuelData.hourlyFuelAccumulator || 0;
 
