@@ -1677,12 +1677,6 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
     }
     wallFanVoltage = lastWallVoltage; // Update global for power calculation
 
-    // Calculate power consumption and watt-hours
-    float totalPower = calculateTotalPower(validatedSupply);
-    float wattHours = totalPower * (2.0 / 3600.0); // 2-second contribution to watt-hours
-    updateWattHourHistory(wattHours, timeClient.getEpochTime());
-    avgWattHours24h = calculateRolling24HourAverageWattHours(); // Update rolling average
-
     lastSensorRead = millis();
 }
 
