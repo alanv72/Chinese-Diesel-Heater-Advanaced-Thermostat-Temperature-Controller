@@ -83,7 +83,7 @@
     display: flex;
     justify-content: center; /* Center all items */
     align-items: center;
-    padding: 5px 10px;
+    padding: 5px 5px;
     height: 33px; /* Fixed height for consistency */
   }
 
@@ -253,7 +253,6 @@
 
   /* Thermostat Control Styling */
   #thermostatControl {
-    width: 110px;
     display: inline-block;
   }
   #thermostatControl input[type="checkbox"] {
@@ -539,7 +538,7 @@
         <label for="thermostatEnable" id="thermostatLabel">Thermostat Off</label>
       </div>
       <button id="heateron" onclick="turnHeaterOn()">Start Heater</button>
-      <button id="shutdownHeater" onclick="shutdownHeater()">Shut Down Heater</button>
+      <button id="shutdownHeater" onclick="shutdownHeater()">Stop Heater</button>
     </div>
   </div>
 
