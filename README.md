@@ -1,3 +1,8 @@
+Some fixes to saving and loading historical data from spiffs. Updated layout of some buttons on the webinterface.
+
+![image](https://github.com/user-attachments/assets/28f88f78-811c-4963-ba36-8c46f3d24f07)
+
+
 Updated Frost mode.
 
 ![image](https://github.com/user-attachments/assets/19fe8017-6a75-46a7-86a0-744ed1ae7b08)
