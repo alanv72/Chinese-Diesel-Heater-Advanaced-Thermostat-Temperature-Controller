@@ -283,15 +283,15 @@ float calculateDuctFanAmps(float voltage) {
 
 // Function to calculate wall fan amps based on voltage
 float calculateWallFanAmps(float voltage) {
-  if (voltage <= 0) return 0.0;
+  if (voltage <= 0) return 0.0; // Invalid input
   if (voltage <= 6.0) {
-    return (voltage / 6.0) * 0.88;
+    return (voltage / 6.0) * 0.53; // 0V to 6V: 0A to 0.53A
   } else if (voltage <= 9.0) {
-    float slope = (1.2 - 0.88) / (9.0 - 6.0); // 0.10667 A/V
-    return 0.88 + slope * (voltage - 6.0);
+    float slope = (1.1 - 0.53) / (9.0 - 6.0); // 0.19 A/V
+    return 0.53 + slope * (voltage - 6.0); // 6V to 9V
   } else {
-    float slope = (1.3 - 1.2) / (12.0 - 9.0); // 0.03333 A/V
-    return 1.2 + slope * (voltage - 9.0);
+    float slope = (1.65 - 1.1) / (12.0 - 9.0); // 0.18333 A/V
+    return 1.1 + slope * (voltage - 9.0); // 9V and beyond
   }
 }
 
@@ -1188,23 +1188,26 @@ void setup() {
   server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest* request) {
   if (request->hasParam("confirm") && request->getParam("confirm")->value() == "DOITS" && eventen) {
     if (DEBUG) Serial.println("Reboot w/ save request received with confirmation");
-    request->send(400, "text/plain", "Rebooting w/save ESP32...");
-    saveHistoryToSPIFFS();
-    end();
-    delay(1500); // Allow response to send
-    ESP.restart();
+    request->send(200, "text/plain", "Rebooting w/save ESP32...");
+    request->onDisconnect([]() {
+      saveHistoryToSPIFFS();
+      end();
+      ESP.restart();
+    });
   } else if (request->hasParam("confirm") && request->getParam("confirm")->value() == "DOIT" && eventen) {
       if (DEBUG) Serial.println("Reboot request received with confirmation");
-      request->send(400, "text/plain", "Rebooting ESP32...");
-      end();
-      delay(1500); // Allow response to send
-      ESP.restart();
+      request->send(200, "text/plain", "Rebooting ESP32...");
+      request->onDisconnect([]() {
+        end();
+        ESP.restart();
+      });
   } else if (request->hasParam("confirm") && request->getParam("confirm")->value() == "DOITANYWAY") {
       if (DEBUG) Serial.println("Reboot request received with confirmation");
-      request->send(400, "text/plain", "Forced Rebooting ESP32...");
-      end();
-      delay(1500); // Allow response to send
-      ESP.restart();
+      request->send(200, "text/plain", "Forced Rebooting ESP32...");
+      request->onDisconnect([]() {
+        end();
+        ESP.restart();
+      });
   } else {
     if (DEBUG) Serial.println("Reboot request denied: missing or incorrect confirmation");
     request->send(400, "text/plain", "Reboot requires confirm=DOIT parameter");
@@ -1267,6 +1270,7 @@ void setup() {
   ElegantOTA.onEnd([](bool success) {
     pinMode(HEATER_PIN, INPUT);  // Assuming it should go back to being an input
     eventen = true;
+    saveHistoryToSPIFFS();
     Serial.println("OTA Update End");
     Serial.print("Update ");
     Serial.print(success ? "Succeeded" : "Failed");
