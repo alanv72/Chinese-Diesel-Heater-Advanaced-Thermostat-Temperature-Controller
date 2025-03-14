@@ -12,6 +12,7 @@
 #include <FS.h>
 #include <SPIFFS.h>
 #include <math.h>  // For NAN
+#include <map> // Added for deduplication
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <index_html.h>
@@ -630,8 +631,8 @@ void handleUpload(AsyncWebServerRequest* request, String filename, size_t index,
 
 void cleanCorruptedHistoryFiles() {
   Serial.println("Checking for corrupted history files in SPIFFS");
-  const unsigned long MIN_VALID_EPOCH = 1710000000UL; // March 2024, adjust as needed
-  const size_t MAX_JSON_SIZE = 24576; // Match DynamicJsonDocument size
+  const unsigned long MIN_VALID_EPOCH = 1710000000UL;
+  const size_t MAX_JSON_SIZE = 24576;
 
   for (int i = 0; i < HISTORY_FILES; i++) {
     String filename = "/history_" + String(i) + ".json";
@@ -647,7 +648,6 @@ void cleanCorruptedHistoryFiles() {
       continue;
     }
 
-    // Check file size to avoid memory issues or empty files
     size_t fileSize = file.size();
     if (fileSize == 0) {
       Serial.println("File " + filename + " is empty, removing");
@@ -666,7 +666,7 @@ void cleanCorruptedHistoryFiles() {
     Serial.println("Deserializing " + filename + ", size: " + String(fileSize) + " bytes");
     DeserializationError error = deserializeJson(doc, file);
     file.close();
-    yield(); // Prevent watchdog timeout during deserialization
+    yield();
 
     if (error) {
       Serial.println("Removing corrupted file: " + filename + " - " + error.c_str());
@@ -674,20 +674,19 @@ void cleanCorruptedHistoryFiles() {
       continue;
     }
 
-    // Check for invalid or missing startTime
-    unsigned long startTime = doc["startTime"] | 0; // Default to 0 if missing
+    unsigned long startTime = doc["startTime"] | 0;
     if (startTime < MIN_VALID_EPOCH) {
       Serial.println("Removing file with invalid startTime: " + filename + " (startTime: " + String(startTime) + ")");
       SPIFFS.remove(filename);
       continue;
     }
 
-    // Verify array consistency and presence
+    // Check timestamps for validity
     const char* arraysToCheck[] = {
       "tempTimestamps", "voltageTimestamps", "ampsTimestamps", "pumpHzTimestamps",
       "outsideTempTimestamps", "hourlyFuelTimestamps", "wattHourTimestamps"
     };
-    bool hasInvalidData = false;
+    bool hasInvalidTimestamps = false;
 
     for (const char* key : arraysToCheck) {
       JsonArray timeArray = doc[key];
@@ -695,41 +694,63 @@ void cleanCorruptedHistoryFiles() {
         for (size_t j = 0; j < timeArray.size(); j++) {
           unsigned long ts = timeArray[j].as<unsigned long>();
           if (ts < MIN_VALID_EPOCH) {
-            hasInvalidData = true;
+            hasInvalidTimestamps = true;
             break;
           }
         }
-      } else {
-        // Missing array might not be fatal, but log it
-        if (DEBUG) Serial.println("Warning: Missing or null array '" + String(key) + "' in " + filename);
+      } else if (DEBUG) {
+        Serial.println("Warning: Missing or null array '" + String(key) + "' in " + filename);
       }
-      if (hasInvalidData) break;
+      if (hasInvalidTimestamps) break;
     }
 
-    // Check corresponding value arrays for consistency (optional, for extra robustness)
-    const char* valueKeys[] = {
-      "tempHistory", "voltageHistory", "ampsHistory", "pumpHzHistory",
-      "outsideTempHistory", "hourlyFuelHistory", "wattHours"
-    };
-    for (int k = 0; k < 7; k++) {
-      JsonArray timeArray = doc[arraysToCheck[k]];
-      JsonArray valueArray = doc[valueKeys[k]];
+    if (hasInvalidTimestamps) {
+      Serial.println("Removing file with invalid timestamps: " + filename);
+      SPIFFS.remove(filename);
+      continue;
+    }
+
+    // Check critical arrays for consistency (only watt and fuel matter for removal)
+    const char* criticalTimeKeys[] = {"hourlyFuelTimestamps", "wattHourTimestamps"};
+    const char* criticalValueKeys[] = {"hourlyFuelHistory", "wattHours"};
+    bool hasCriticalMismatch = false;
+
+    for (int k = 0; k < 2; k++) {
+      JsonArray timeArray = doc[criticalTimeKeys[k]];
+      JsonArray valueArray = doc[criticalValueKeys[k]];
       if (!timeArray.isNull() && !valueArray.isNull() && timeArray.size() != valueArray.size()) {
-        hasInvalidData = true;
-        Serial.println("Array size mismatch in " + filename + ": " + String(arraysToCheck[k]) + 
-                       " (" + String(timeArray.size()) + ") vs " + String(valueKeys[k]) + 
+        hasCriticalMismatch = true;
+        Serial.println("Critical array size mismatch in " + filename + ": " + String(criticalTimeKeys[k]) + 
+                       " (" + String(timeArray.size()) + ") vs " + String(criticalValueKeys[k]) + 
                        " (" + String(valueArray.size()) + ")");
         break;
       }
     }
 
-    if (hasInvalidData) {
-      Serial.println("Removing file with invalid data: " + filename);
+    // Log non-critical mismatches but don’t remove
+    const char* nonCriticalTimeKeys[] = {
+      "tempTimestamps", "voltageTimestamps", "ampsTimestamps", "pumpHzTimestamps", "outsideTempTimestamps"
+    };
+    const char* nonCriticalValueKeys[] = {
+      "tempHistory", "voltageHistory", "ampsHistory", "pumpHzHistory", "outsideTempHistory"
+    };
+    for (int k = 0; k < 5; k++) {
+      JsonArray timeArray = doc[nonCriticalTimeKeys[k]];
+      JsonArray valueArray = doc[nonCriticalValueKeys[k]];
+      if (!timeArray.isNull() && !valueArray.isNull() && timeArray.size() != valueArray.size()) {
+        Serial.println("Non-critical array size mismatch in " + filename + ": " + String(nonCriticalTimeKeys[k]) + 
+                       " (" + String(timeArray.size()) + ") vs " + String(nonCriticalValueKeys[k]) + 
+                       " (" + String(valueArray.size()) + ")");
+      }
+    }
+
+    if (hasCriticalMismatch) {
+      Serial.println("Removing file with critical data mismatch: " + filename);
       SPIFFS.remove(filename);
     } else {
-      if (DEBUG) Serial.println("File " + filename + " is valid");
+      if (DEBUG) Serial.println("File " + filename + " is valid for critical data");
     }
-    yield(); // Prevent watchdog timeout after each file
+    yield();
   }
   Serial.println("Finished checking history files");
 }
@@ -881,10 +902,18 @@ void setup() {
     request->send(SPIFFS, "/index_html", "text/html");
   });
 
+  // Handler for JavaScript files
   server.on("^.+\.js$", HTTP_GET, [](AsyncWebServerRequest *request) {
     String path = request->url();
     if (SPIFFS.exists(path)) {
-      request->send(SPIFFS, path, "application/javascript");
+      // Create a response with the file and content type
+      AsyncWebServerResponse *response = request->beginResponse(SPIFFS, path, "application/javascript");
+      
+      // Add Cache-Control header for caching
+      response->addHeader("Cache-Control", "public, max-age=2592000");
+
+      // Send the response
+      request->send(response);
     } else {
       request->send(404, "text/plain", "File not found");
     }
@@ -1179,13 +1208,28 @@ void setup() {
     }
   });
 
-  server.onNotFound([](AsyncWebServerRequest *request){
+  // Handler for all other files (excluding .js)
+  server.onNotFound([](AsyncWebServerRequest *request) {
     if (request->method() == HTTP_GET) {
       String path = request->url();
+
       if (SPIFFS.exists(path)) {
-        request->send(SPIFFS, path, String(), false);
+        // Determine content type based on file extension
+        String contentType = "text/plain"; // Default
+        if (path.endsWith(".html")) contentType = "text/html";
+        else if (path.endsWith(".css")) contentType = "text/css";
+        else if (path.endsWith(".png")) contentType = "image/png";
+        else if (path.endsWith(".jpg") || path.endsWith(".jpeg")) contentType = "image/jpeg";
+        else if (path.endsWith(".gif")) contentType = "image/gif";
+        else if (path.endsWith(".json")) contentType = "application/json";
+
+        // Serve the file with caching headers
+        AsyncWebServerResponse *response = request->beginResponse(SPIFFS, path, contentType);
+        response->addHeader("Cache-Control", "public, max-age=2592000"); // Cache for 1 year
+
+        request->send(response);
       } else {
-        request->send(404, "text/plain", "File Not Found");
+        request->send(404, "text/plain", "File not found");
       }
     }
   });
@@ -1799,7 +1843,7 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       firstHistUpdate = false;  // Disable first-run trigger after this
     }
 
-    DynamicJsonDocument jsonDoc(1024);
+    DynamicJsonDocument jsonDoc(10240);
     jsonDoc["currentTemp"] = round(celsiusToFahrenheit(currentTemperature));
     jsonDoc["setTemp"] = round(celsiusToFahrenheit(setTemperature));
     jsonDoc["targettemp"] = round(celsiusToFahrenheit(targetSetTemperature));
@@ -2243,7 +2287,7 @@ void saveHistoryToSPIFFS() {
         validTempEntries++;
       }
     }
-    if (i % 100 == 0) delay(0);  // Yield every 100 iterations
+    if (i % 100 == 0) yield();  // Yield every 100 iterations
   }
 
   // Filter and add voltage data
@@ -2265,7 +2309,7 @@ void saveHistoryToSPIFFS() {
         validVoltEntries++;
       }
     }
-    if (i % 100 == 0) delay(0);
+    if (i % 100 == 0) yield();
   }
 
   // Filter and add amps data (12-hour window)
@@ -2288,7 +2332,7 @@ void saveHistoryToSPIFFS() {
         validAmpsEntries++;
       }
     }
-    if (i % 100 == 0) delay(0);
+    if (i % 100 == 0) yield();
   }
 
   // Filter and add pump Hz data
@@ -2310,7 +2354,7 @@ void saveHistoryToSPIFFS() {
         validPumpHzEntries++;
       }
     }
-    if (i % 100 == 0) delay(0);
+    if (i % 100 == 0) yield();
   }
 
   // Filter and add outside temperature data
@@ -2332,7 +2376,7 @@ void saveHistoryToSPIFFS() {
         validOutsideTempEntries++;
       }
     }
-    if (i % 100 == 0) delay(0);
+    if (i % 100 == 0) yield();
   }
 
   // Filter and add hourly fuel data
@@ -2357,7 +2401,7 @@ void saveHistoryToSPIFFS() {
         validHourlyFuelEntries++;
       }
     }
-    if (i % 100 == 0) delay(0);
+    if (i % 100 == 0) yield();
   }
   (*doc)["hourlyFuelAccumulator"] = hourlyFuelAccumulator;
   (*doc)["hourlyFuelAccumulatorTime"] = currentTime;
@@ -2387,7 +2431,7 @@ void saveHistoryToSPIFFS() {
         validWattHourEntries++;
       }
     }
-    if (i % 100 == 0) delay(0);
+    if (i % 100 == 0) yield();
   }
   (*doc)["wattHourAccumulator"] = wattHourAccumulator;
   (*doc)["wattHourAccumulatorTime"] = currentTime;
@@ -2468,31 +2512,14 @@ bool loadHistoryFromSPIFFS() {
   }
   wattHourIndex = 0;
 
-  // Temporary structs for sorting
-  struct Entry {
-    float value;
-    unsigned long timestamp;
-  };
-  Entry* tempEntries = (Entry*)malloc(TEMP_HISTORY_SIZE * sizeof(Entry));
-  Entry* voltEntries = (Entry*)malloc(VOLTAGE_HISTORY_SIZE * sizeof(Entry));
-  Entry* ampsEntries = (Entry*)malloc(AMPS_HISTORY_SIZE * sizeof(Entry));
-  Entry* pumpHzEntries = (Entry*)malloc(PUMP_HZ_HISTORY_SIZE * sizeof(Entry));
-  Entry* outsideTempEntries = (Entry*)malloc(OUTSIDE_TEMP_HISTORY_SIZE * sizeof(Entry));
-  Entry* hourlyFuelEntries = (Entry*)malloc(HOURLY_FUEL_HISTORY_SIZE * sizeof(Entry));
-  Entry* wattHourEntries = (Entry*)malloc(WATT_HOUR_HISTORY_SIZE * sizeof(Entry));
-
-  if (!tempEntries || !voltEntries || !ampsEntries || !pumpHzEntries || !outsideTempEntries || 
-      !hourlyFuelEntries || !wattHourEntries) {
-    Serial.println("Failed to allocate memory for loading history");
-    if (tempEntries) free(tempEntries);
-    if (voltEntries) free(voltEntries);
-    if (ampsEntries) free(ampsEntries);
-    if (pumpHzEntries) free(pumpHzEntries);
-    if (outsideTempEntries) free(outsideTempEntries);
-    if (hourlyFuelEntries) free(hourlyFuelEntries);
-    if (wattHourEntries) free(wattHourEntries);
-    return false;
-  }
+  // Use std::map for deduplication of all datasets
+  std::map<unsigned long, float> tempMap;         // 12h
+  std::map<unsigned long, float> voltMap;         // 12h
+  std::map<unsigned long, float> ampsMap;         // 12h
+  std::map<unsigned long, float> pumpHzMap;       // 12h
+  std::map<unsigned long, float> outsideTempMap;  // 12h
+  std::map<unsigned long, float> hourlyFuelMap;   // 24h
+  std::map<unsigned long, float> wattHourMap;     // 24h
 
   int tempCount = 0, voltCount = 0, ampsCount = 0, pumpHzCount = 0, outsideTempCount = 0;
   int hourlyFuelCount = 0, wattHourCount = 0;
@@ -2510,34 +2537,23 @@ bool loadHistoryFromSPIFFS() {
   unsigned long loadedLastHourlyUpdate = 0;
   unsigned long loadedLastHourlyFuelUpdate = 0;
 
-  // First pass: Find latest accumulator file
   DynamicJsonDocument* doc = new DynamicJsonDocument(24576);
   if (!doc) {
     Serial.println("Failed to allocate JSON document for accumulator load");
-    free(tempEntries); free(voltEntries); free(ampsEntries);
-    free(pumpHzEntries); free(outsideTempEntries); free(hourlyFuelEntries); free(wattHourEntries);
     return false;
   }
 
+  // First pass: Find latest accumulator file
   for (int i = 0; i < HISTORY_FILES; i++) {
     String filename = "/history_" + String(i) + ".json";
-    if (!SPIFFS.exists(filename)) {
-      if (DEBUG) Serial.println("File " + filename + " does not exist, skipping");
-      continue;
-    }
+    if (!SPIFFS.exists(filename)) continue;
 
     File file = SPIFFS.open(filename, FILE_READ);
-    if (!file) {
-      Serial.println("Failed to open " + filename);
-      continue;
-    }
+    if (!file) continue;
 
     DeserializationError error = deserializeJson(*doc, file);
     file.close();
-    if (error) {
-      Serial.println("Failed to parse " + filename + ": " + error.c_str());
-      continue;
-    }
+    if (error) continue;
 
     unsigned long wattTime = (*doc)["wattHourAccumulatorTime"].as<unsigned long>();
     if (wattTime > latestWattTime && wattTime >= MIN_VALID_EPOCH && 
@@ -2560,7 +2576,6 @@ bool loadHistoryFromSPIFFS() {
     unsigned long currentHourStart = currentTime - (currentTime % 3600);
     unsigned long prevHourStart = currentHourStart - 3600;
 
-    // Restore wattHourAccumulator
     if (loadedWattHourAccumulator > 0 && loadedWattHourAccumulatorTime >= prevHourStart && 
         loadedWattHourAccumulatorTime < currentHourStart + 3600) {
       wattHourAccumulator = loadedWattHourAccumulator;
@@ -2568,13 +2583,10 @@ bool loadHistoryFromSPIFFS() {
       if (DEBUG) Serial.printf("Restored wattHourAccumulator: %.2f Wh from %s (saved at %lu)\n", 
                     wattHourAccumulator, filename.c_str(), wattHourAccumulatorTime);
     } else {
-      Serial.printf("wattHourAccumulator %.2f not restored: time %lu outside valid range (prev %lu, current %lu)\n", 
-                    loadedWattHourAccumulator, loadedWattHourAccumulatorTime, prevHourStart, currentHourStart);
       wattHourAccumulator = 0.0;
       wattHourAccumulatorTime = currentHourStart;
     }
 
-    // Restore hourlyFuelAccumulator
     if (loadedFuelAccumulator > 0 && loadedFuelAccumulatorTime >= prevHourStart && 
         loadedFuelAccumulatorTime < currentHourStart + 3600) {
       hourlyFuelAccumulator = loadedFuelAccumulator;
@@ -2582,33 +2594,16 @@ bool loadHistoryFromSPIFFS() {
       if (DEBUG) Serial.printf("Restored hourlyFuelAccumulator: %.6f gal from %s (saved at %lu)\n", 
                     hourlyFuelAccumulator, filename.c_str(), hourlyFuelAccumulatorTime);
     } else {
-      Serial.printf("hourlyFuelAccumulator %.6f not restored: time %lu outside valid range (prev %lu, current %lu)\n", 
-                    loadedFuelAccumulator, loadedFuelAccumulatorTime, prevHourStart, currentHourStart);
       hourlyFuelAccumulator = 0.0;
       hourlyFuelAccumulatorTime = currentHourStart;
     }
 
-    // Restore lastHourlyUpdate (for watt-hours)
-    if (loadedLastHourlyUpdate > 0 && loadedLastHourlyUpdate >= MIN_VALID_EPOCH && 
-        (currentTime - loadedLastHourlyUpdate) <= LAST_24_HOURS) {
-      lastHourlyUpdate = loadedLastHourlyUpdate;
-      Serial.printf("Restored lastHourlyUpdate: %lu from %s\n", lastHourlyUpdate, filename.c_str());
-    } else {
-      lastHourlyUpdate = currentHourStart;
-      Serial.printf("lastHourlyUpdate %lu not restored, set to current hour: %lu\n", 
-                    loadedLastHourlyUpdate, lastHourlyUpdate);
-    }
-
-    // Restore lastHourlyFuelUpdate (for fuel)
-    if (loadedLastHourlyFuelUpdate > 0 && loadedLastHourlyFuelUpdate >= MIN_VALID_EPOCH && 
-        (currentTime - loadedLastHourlyFuelUpdate) <= LAST_24_HOURS) {
-      lastHourlyFuelUpdate = loadedLastHourlyFuelUpdate;
-      Serial.printf("Restored lastHourlyFuelUpdate: %lu from %s\n", lastHourlyFuelUpdate, filename.c_str());
-    } else {
-      lastHourlyFuelUpdate = currentHourStart;
-      Serial.printf("lastHourlyFuelUpdate %lu not restored, set to current hour: %lu\n", 
-                    loadedLastHourlyFuelUpdate, lastHourlyFuelUpdate);
-    }
+    lastHourlyUpdate = (loadedLastHourlyUpdate > 0 && loadedLastHourlyUpdate >= MIN_VALID_EPOCH && 
+                       (currentTime - loadedLastHourlyUpdate) <= LAST_24_HOURS) 
+                       ? loadedLastHourlyUpdate : currentHourStart;
+    lastHourlyFuelUpdate = (loadedLastHourlyFuelUpdate > 0 && loadedLastHourlyFuelUpdate >= MIN_VALID_EPOCH && 
+                           (currentTime - loadedLastHourlyFuelUpdate) <= LAST_24_HOURS) 
+                           ? loadedLastHourlyFuelUpdate : currentHourStart;
   } else {
     Serial.println("No recent history files found for accumulators within 24 hours");
     wattHourAccumulatorTime = currentTime - (currentTime % 3600);
@@ -2617,7 +2612,7 @@ bool loadHistoryFromSPIFFS() {
     lastHourlyFuelUpdate = hourlyFuelAccumulatorTime;
   }
 
-  // Second pass: Load all history data
+  // Second pass: Load all history data into maps
   for (int i = 0; i < HISTORY_FILES; i++) {
     String filename = "/history_" + String(i) + ".json";
     if (!SPIFFS.exists(filename)) continue;
@@ -2625,13 +2620,10 @@ bool loadHistoryFromSPIFFS() {
     File file = SPIFFS.open(filename, FILE_READ);
     if (!file) continue;
 
-    doc->clear();  // Reuse the document
+    doc->clear();
     DeserializationError error = deserializeJson(*doc, file);
     file.close();
-    if (error) {
-      Serial.println("Failed to parse " + filename + ": " + error.c_str());
-      continue;
-    }
+    if (error) continue;
 
     unsigned long blockStart = (*doc)["startTime"].as<unsigned long>();
     if (blockStart < MIN_VALID_EPOCH) continue;
@@ -2651,204 +2643,154 @@ bool loadHistoryFromSPIFFS() {
     JsonArray wattHourArray = (*doc)["wattHours"];
     JsonArray wattTimeArray = (*doc)["wattHourTimestamps"];
 
-    for (size_t j = 0; j < tempArray.size() && tempCount < TEMP_HISTORY_SIZE; j++) {
+    for (size_t j = 0; j < tempArray.size(); j++) {
       if (tempArray[j].is<float>() && tempTimeArray[j].is<unsigned long>()) {
         unsigned long ts = tempTimeArray[j].as<unsigned long>();
         float value = tempArray[j].as<float>();
         if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_12_HOURS && value > -100) {
-          tempEntries[tempCount] = {value, ts};
-          tempCount++;
+          tempMap[ts] = value;
+          tempCount = tempMap.size();
         }
       }
-      if (j % 100 == 0) delay(0);  // Yield
+      if (j % 100 == 0) yield();
     }
 
-    for (size_t j = 0; j < voltArray.size() && voltCount < VOLTAGE_HISTORY_SIZE; j++) {
+    for (size_t j = 0; j < voltArray.size(); j++) {
       if (voltArray[j].is<float>() && voltTimeArray[j].is<unsigned long>()) {
         unsigned long ts = voltTimeArray[j].as<unsigned long>();
         float value = voltArray[j].as<float>();
         if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_12_HOURS && value >= 0) {
-          voltEntries[voltCount] = {value, ts};
-          voltCount++;
+          voltMap[ts] = value;
+          voltCount = voltMap.size();
         }
       }
-      if (j % 100 == 0) delay(0);
+      if (j % 100 == 0) yield();
     }
 
-    for (size_t j = 0; j < ampsArray.size() && ampsCount < AMPS_HISTORY_SIZE; j++) {
+    for (size_t j = 0; j < ampsArray.size(); j++) {
       if (ampsArray[j].is<float>() && ampsTimeArray[j].is<unsigned long>()) {
         unsigned long ts = ampsTimeArray[j].as<unsigned long>();
         float value = ampsArray[j].as<float>();
         if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_12_HOURS && !isnan(value)) {
-          ampsEntries[ampsCount] = {value, ts};
-          ampsCount++;
+          ampsMap[ts] = value;
+          ampsCount = ampsMap.size();
         }
       }
-      if (j % 100 == 0) delay(0);
+      if (j % 100 == 0) yield();
     }
 
-    for (size_t j = 0; j < pumpHzArray.size() && pumpHzCount < PUMP_HZ_HISTORY_SIZE; j++) {
+    for (size_t j = 0; j < pumpHzArray.size(); j++) {
       if (pumpHzArray[j].is<float>() && pumpHzTimeArray[j].is<unsigned long>()) {
         unsigned long ts = pumpHzTimeArray[j].as<unsigned long>();
         float value = pumpHzArray[j].as<float>();
         if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_12_HOURS && value >= 0) {
-          pumpHzEntries[pumpHzCount] = {value, ts};
-          pumpHzCount++;
+          pumpHzMap[ts] = value;
+          pumpHzCount = pumpHzMap.size();
         }
       }
-      if (j % 100 == 0) delay(0);
+      if (j % 100 == 0) yield();
     }
 
-    for (size_t j = 0; j < outsideTempArray.size() && outsideTempCount < OUTSIDE_TEMP_HISTORY_SIZE; j++) {
+    for (size_t j = 0; j < outsideTempArray.size(); j++) {
       if (outsideTempArray[j].is<float>() && outsideTempTimeArray[j].is<unsigned long>()) {
         unsigned long ts = outsideTempTimeArray[j].as<unsigned long>();
         float value = outsideTempArray[j].as<float>();
         if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_12_HOURS && !isnan(value)) {
-          outsideTempEntries[outsideTempCount] = {value, ts};
-          outsideTempCount++;
+          outsideTempMap[ts] = value;
+          outsideTempCount = outsideTempMap.size();
         }
       }
-      if (j % 100 == 0) delay(0);
+      if (j % 100 == 0) yield();
     }
 
-    for (size_t j = 0; j < hourlyFuelArray.size() && hourlyFuelCount < HOURLY_FUEL_HISTORY_SIZE; j++) {
+    for (size_t j = 0; j < hourlyFuelArray.size(); j++) {
       if (hourlyFuelArray[j].is<float>() && hourlyTimeArray[j].is<unsigned long>()) {
         unsigned long ts = hourlyTimeArray[j].as<unsigned long>();
         float value = hourlyFuelArray[j].as<float>();
-        if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_24_HOURS) {
-          hourlyFuelEntries[hourlyFuelCount] = {value, ts};
-          hourlyFuelCount++;
+        if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_24_HOURS && value > 0) {
+          hourlyFuelMap[ts] = value;
+          hourlyFuelCount = hourlyFuelMap.size();
         }
       }
-      if (j % 100 == 0) delay(0);
+      if (j % 100 == 0) yield();
     }
 
-    for (size_t j = 0; j < wattHourArray.size() && wattHourCount < WATT_HOUR_HISTORY_SIZE; j++) {
+    for (size_t j = 0; j < wattHourArray.size(); j++) {
       if (wattHourArray[j].is<float>() && wattTimeArray[j].is<unsigned long>()) {
         unsigned long ts = wattTimeArray[j].as<unsigned long>();
         float value = wattHourArray[j].as<float>();
         if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_24_HOURS && value > 0) {
-          wattHourEntries[wattHourCount] = {value, ts};
-          wattHourCount++;
+          wattHourMap[ts] = value;
+          wattHourCount = wattHourMap.size();
         }
       }
-      if (j % 100 == 0) delay(0);
+      if (j % 100 == 0) yield();
     }
   }
 
-  // Sort and load temperature
+  struct Entry {
+    float value;
+    unsigned long timestamp;
+  };
+
+  // Helper function to load map into array
+  auto loadMapToArray = [](std::map<unsigned long, float>& map, float* values, unsigned long* timestamps, 
+                           int& index, int maxSize, bool newestFirst) {
+    int count = map.size();
+    Entry* entries = (Entry*)malloc(count * sizeof(Entry));
+    if (!entries) {
+      Serial.println("Failed to allocate entries for loading");
+      return;
+    }
+    int idx = 0;
+    for (const auto& entry : map) {
+      entries[idx++] = {entry.second, entry.first};
+    }
+    qsort(entries, count, sizeof(Entry),
+          [](const void* a, const void* b) -> int {
+            const Entry* ea = (const Entry*)a;
+            const Entry* eb = (const Entry*)b;
+            return (ea->timestamp > eb->timestamp) - (ea->timestamp < eb->timestamp);
+          });
+    int loadCount = count < maxSize ? count : maxSize;
+    for (int i = 0; i < loadCount; i++) {
+      int srcIdx = newestFirst ? (count - loadCount + i) : i;
+      values[i] = entries[srcIdx].value;
+      timestamps[i] = entries[srcIdx].timestamp;
+    }
+    index = loadCount % maxSize;
+    if (DEBUG && loadCount > 0) {
+      Serial.printf("Loaded %d entries, last: %.2f at %lu\n", loadCount, values[loadCount-1], timestamps[loadCount-1]);
+    }
+    free(entries);
+  };
+
+  // Load 12-hour datasets (newest first)
   if (tempCount > 0) {
-    qsort(tempEntries, tempCount, sizeof(Entry),
-          [](const void* a, const void* b) -> int {
-            const Entry* ea = (const Entry*)a;
-            const Entry* eb = (const Entry*)b;
-            return (ea->timestamp > eb->timestamp) - (ea->timestamp < eb->timestamp);
-          });
-    for (int i = 0; i < tempCount && i < TEMP_HISTORY_SIZE; i++) {
-      tempHistory[i] = tempEntries[i].value;
-      tempTimestamps[i] = tempEntries[i].timestamp;
-    }
-    tempIndex = tempCount % TEMP_HISTORY_SIZE;
+    loadMapToArray(tempMap, tempHistory, tempTimestamps, tempIndex, TEMP_HISTORY_SIZE, true);
   }
-
-  // Sort and load voltage
   if (voltCount > 0) {
-    qsort(voltEntries, voltCount, sizeof(Entry),
-          [](const void* a, const void* b) -> int {
-            const Entry* ea = (const Entry*)a;
-            const Entry* eb = (const Entry*)b;
-            return (ea->timestamp > eb->timestamp) - (ea->timestamp < eb->timestamp);
-          });
-    for (int i = 0; i < voltCount && i < VOLTAGE_HISTORY_SIZE; i++) {
-      voltageHistory[i] = voltEntries[i].value;
-      voltageTimestamps[i] = voltEntries[i].timestamp;
-    }
-    voltageIndex = voltCount % VOLTAGE_HISTORY_SIZE;
+    loadMapToArray(voltMap, voltageHistory, voltageTimestamps, voltageIndex, VOLTAGE_HISTORY_SIZE, true);
   }
-
-  // Sort and load amps
   if (ampsCount > 0) {
-    qsort(ampsEntries, ampsCount, sizeof(Entry),
-          [](const void* a, const void* b) -> int {
-            const Entry* ea = (const Entry*)a;
-            const Entry* eb = (const Entry*)b;
-            return (ea->timestamp > eb->timestamp) - (ea->timestamp < eb->timestamp);
-          });
-    for (int i = 0; i < ampsCount && i < AMPS_HISTORY_SIZE; i++) {
-      ampsHistory[i] = ampsEntries[i].value;
-      ampsTimestamps[i] = ampsEntries[i].timestamp;
-    }
-    ampsIndex = ampsCount % AMPS_HISTORY_SIZE;
+    loadMapToArray(ampsMap, ampsHistory, ampsTimestamps, ampsIndex, AMPS_HISTORY_SIZE, true);
   }
-
-  // Sort and load pump Hz
   if (pumpHzCount > 0) {
-    qsort(pumpHzEntries, pumpHzCount, sizeof(Entry),
-          [](const void* a, const void* b) -> int {
-            const Entry* ea = (const Entry*)a;
-            const Entry* eb = (const Entry*)b;
-            return (ea->timestamp > eb->timestamp) - (ea->timestamp < eb->timestamp);
-          });
-    for (int i = 0; i < pumpHzCount && i < PUMP_HZ_HISTORY_SIZE; i++) {
-      pumpHzHistory[i] = pumpHzEntries[i].value;
-      pumpHzTimestamps[i] = pumpHzEntries[i].timestamp;
-    }
-    pumpHzIndex = pumpHzCount % PUMP_HZ_HISTORY_SIZE;
+    loadMapToArray(pumpHzMap, pumpHzHistory, pumpHzTimestamps, pumpHzIndex, PUMP_HZ_HISTORY_SIZE, true);
   }
-
-  // Sort and load outdoor temperature
   if (outsideTempCount > 0) {
-    qsort(outsideTempEntries, outsideTempCount, sizeof(Entry),
-          [](const void* a, const void* b) -> int {
-            const Entry* ea = (const Entry*)a;
-            const Entry* eb = (const Entry*)b;
-            return (ea->timestamp > eb->timestamp) - (ea->timestamp < eb->timestamp);
-          });
-    for (int i = 0; i < outsideTempCount && i < OUTSIDE_TEMP_HISTORY_SIZE; i++) {
-      outsideTempHistory[i] = outsideTempEntries[i].value;
-      outsideTempTimestamps[i] = outsideTempEntries[i].timestamp;
-    }
-    outsideTempIndex = outsideTempCount % OUTSIDE_TEMP_HISTORY_SIZE;
+    loadMapToArray(outsideTempMap, outsideTempHistory, outsideTempTimestamps, outsideTempIndex, OUTSIDE_TEMP_HISTORY_SIZE, true);
   }
 
-  // Sort and load hourly fuel
+  // Load 24-hour datasets (newest first, consistent with current behavior)
   if (hourlyFuelCount > 0) {
-    qsort(hourlyFuelEntries, hourlyFuelCount, sizeof(Entry),
-          [](const void* a, const void* b) -> int {
-            const Entry* ea = (const Entry*)a;
-            const Entry* eb = (const Entry*)b;
-            return (ea->timestamp > eb->timestamp) - (ea->timestamp < eb->timestamp);
-          });
-    for (int i = 0; i < hourlyFuelCount && i < HOURLY_FUEL_HISTORY_SIZE; i++) {
-      hourlyFuelHistory[i] = hourlyFuelEntries[i].value;
-      hourlyFuelTimestamps[i] = hourlyFuelEntries[i].timestamp;
-    }
-    hourlyFuelIndex = hourlyFuelCount % HOURLY_FUEL_HISTORY_SIZE;
+    loadMapToArray(hourlyFuelMap, hourlyFuelHistory, hourlyFuelTimestamps, hourlyFuelIndex, HOURLY_FUEL_HISTORY_SIZE, true);
   }
-
-  // Sort and load watt-hours
   if (wattHourCount > 0) {
-    qsort(wattHourEntries, wattHourCount, sizeof(Entry),
-          [](const void* a, const void* b) -> int {
-            const Entry* ea = (const Entry*)a;
-            const Entry* eb = (const Entry*)b;
-            return (ea->timestamp > eb->timestamp) - (ea->timestamp < eb->timestamp);
-          });
-    for (int i = 0; i < wattHourCount && i < WATT_HOUR_HISTORY_SIZE; i++) {
-      wattHourHistory[i] = wattHourEntries[i].value;
-      wattHourTimestamps[i] = wattHourEntries[i].timestamp;
-    }
-    wattHourIndex = wattHourCount % WATT_HOUR_HISTORY_SIZE;
+    loadMapToArray(wattHourMap, wattHourHistory, wattHourTimestamps, wattHourIndex, WATT_HOUR_HISTORY_SIZE, true);
   }
 
-  free(tempEntries);
-  free(voltEntries);
-  free(ampsEntries);
-  free(pumpHzEntries);
-  free(outsideTempEntries);
-  free(hourlyFuelEntries);
-  free(wattHourEntries);
-  delete doc;  // Free heap memory
+  delete doc;
 
   bool success = tempCount > 0 || voltCount > 0 || ampsCount > 0 || pumpHzCount > 0 || 
                  outsideTempCount > 0 || hourlyFuelCount > 0 || wattHourCount > 0 ||
