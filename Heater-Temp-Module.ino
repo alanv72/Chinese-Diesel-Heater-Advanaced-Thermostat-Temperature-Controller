@@ -362,12 +362,13 @@ void updateWattHourHistory(float wattHours, unsigned long epochTime) {
     Serial.println("Watt-hour rolled over, reset accumulator at " + String(currentHourStart));
   }
 }
+
 // Function to update hourly fuel history
 void updateHourlyFuelHistory(float fuelGallons, unsigned long epochTime) {
   static unsigned long lastHourlyFuelUpdate = 0;
   static bool fuelInitialized = false;
 
-  // Initialize lastHourlyFuelUpdate from saved accumulator time on first run
+  // Initialize lastHourlyFuelUpdate from saved accumulator time or current hour on first run
   if (!fuelInitialized) {
     if (hourlyFuelAccumulator > 0 && hourlyFuelAccumulatorTime > 0) {
       lastHourlyFuelUpdate = hourlyFuelAccumulatorTime - (hourlyFuelAccumulatorTime % 3600);
@@ -379,23 +380,32 @@ void updateHourlyFuelHistory(float fuelGallons, unsigned long epochTime) {
     fuelInitialized = true;
   }
 
+  // Add incoming fuel to accumulator
   hourlyFuelAccumulator += fuelGallons;
 
-  // Check for hourly rollover
+  // Determine current and last hour start times
   unsigned long currentHourStart = epochTime - (epochTime % 3600);
   unsigned long lastHourStart = lastHourlyFuelUpdate - (lastHourlyFuelUpdate % 3600);
-  if (currentHourStart > lastHourStart && fuelInitialized) {
+
+  // Check for hourly rollover or first update after initialization
+  if (currentHourStart > lastHourStart || (fuelInitialized && lastHourlyFuelUpdate == 0)) {
+    // Store the accumulator value (could be 0 if no fuel used) for the previous hour
     hourlyFuelHistory[hourlyFuelIndex] = hourlyFuelAccumulator;
-    hourlyFuelTimestamps[hourlyFuelIndex] = currentHourStart - 3600;
+    hourlyFuelTimestamps[hourlyFuelIndex] = lastHourStart; // Use last hour’s start time
     hourlyFuelIndex = (hourlyFuelIndex + 1) % HOURLY_FUEL_HISTORY_SIZE;
-    if (DEBUG) Serial.println("Hourly fuel rolled over: " + 
-                   String(hourlyFuelHistory[(hourlyFuelIndex - 1 + HOURLY_FUEL_HISTORY_SIZE) % HOURLY_FUEL_HISTORY_SIZE], 6) + 
-                   " gal at " + String(hourlyFuelTimestamps[(hourlyFuelIndex - 1 + HOURLY_FUEL_HISTORY_SIZE) % HOURLY_FUEL_HISTORY_SIZE]));
+
+    if (DEBUG) {
+      int lastIndex = (hourlyFuelIndex - 1 + HOURLY_FUEL_HISTORY_SIZE) % HOURLY_FUEL_HISTORY_SIZE;
+      Serial.println("Hourly fuel updated: " + 
+                     String(hourlyFuelHistory[lastIndex], 6) + 
+                     " gal at " + String(hourlyFuelTimestamps[lastIndex]));
+    }
+
+    // Reset accumulator for the new hour
     hourlyFuelAccumulator = 0.0;
-    lastHourlyFuelUpdate = currentHourStart; // Update to new hour start
+    lastHourlyFuelUpdate = currentHourStart; // Move to current hour
   }
 }
-// testend
 
 // Function to calculate rolling 24-hour average watt-hours per hour
 float calculateRolling24HourAverageWattHours() {
@@ -1176,13 +1186,25 @@ void setup() {
   });
 
   server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest* request) {
-  if (request->hasParam("confirm") && request->getParam("confirm")->value() == "DOIT" && eventen) {
-    if (DEBUG) Serial.println("Reboot request received with confirmation");
-    request->send(200, "text/plain", "Rebooting ESP32...");
+  if (request->hasParam("confirm") && request->getParam("confirm")->value() == "DOITS" && eventen) {
+    if (DEBUG) Serial.println("Reboot w/ save request received with confirmation");
+    request->send(400, "text/plain", "Rebooting w/save ESP32...");
     saveHistoryToSPIFFS();
     end();
     delay(1500); // Allow response to send
     ESP.restart();
+  } else if (request->hasParam("confirm") && request->getParam("confirm")->value() == "DOIT" && eventen) {
+      if (DEBUG) Serial.println("Reboot request received with confirmation");
+      request->send(400, "text/plain", "Rebooting ESP32...");
+      end();
+      delay(1500); // Allow response to send
+      ESP.restart();
+  } else if (request->hasParam("confirm") && request->getParam("confirm")->value() == "DOITANYWAY") {
+      if (DEBUG) Serial.println("Reboot request received with confirmation");
+      request->send(400, "text/plain", "Forced Rebooting ESP32...");
+      end();
+      delay(1500); // Allow response to send
+      ESP.restart();
   } else {
     if (DEBUG) Serial.println("Reboot request denied: missing or incorrect confirmation");
     request->send(400, "text/plain", "Reboot requires confirm=DOIT parameter");
