@@ -96,6 +96,9 @@ unsigned long overflowCount = 0;
 unsigned long long uptime = 0; // Changed to unsigned long long
 unsigned long lastMemoryCheckTime = 0;
 
+//default name
+String currentBLEName = "HEATER-THERM";
+
 // NTP Client
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 10800000);
@@ -114,9 +117,6 @@ const unsigned long WEATHER_UPDATE_INTERVAL = 890000;
 float outsideTempHistory[OUTSIDE_TEMP_HISTORY_SIZE];
 unsigned long outsideTempTimestamps[OUTSIDE_TEMP_HISTORY_SIZE];
 int outsideTempIndex = 0;
-
-// Your BLE name or hostname for mDNS
-String currentBLEName = "RV-DHeat";
 
 AsyncWebServer server(80);
 AsyncEventSource events("/events");
@@ -526,6 +526,7 @@ void connectToWiFi() {
     } else {
       Serial.println("mDNS responder started");
       MDNS.addService("http", "tcp", 80);
+      Serial.println("mDNS added HTTP");
     }
   } else {
     Serial.println("Failed to connect to any WiFi network.");
@@ -536,7 +537,9 @@ void connectToWiFi() {
 void checkWiFiConnection() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi disconnected. Attempting reconnection...");
+    server.end();
     connectToWiFi();
+    server.begin();
   }
 }
 
@@ -845,15 +848,8 @@ void setup() {
   writerLastTime = millis(); // No change needed (initialization)
   pinMode(LED_BUILTIN, OUTPUT);
 
-  connectToWiFi();
-  delay(1000); // Delay for wifi stabilization
-  timeClient.update();
-  unsigned long epochTime = timeClient.getEpochTime();
-  delay(1000); // Delay for NTP sync
-  updateWeatherData();
-  delay(1000); // Delay for weathersync
-
   preferences.begin("heater", false);
+  currentBLEName = preferences.getString("bleName", "HEATER-THERM");  // Load with default
   ZIP_CODE = preferences.getString("zipcode", "64856");
   currentFileIndex = preferences.getInt("currentFileIndex", 0);
   heaterRunTime = preferences.getULong("runtime", 0);
@@ -884,6 +880,14 @@ void setup() {
       manualWallFanVoltage = (manualWallFanSpeed * NOMINAL_VOLTAGE) / PWM_MAX; // Backward compatibility
     }
   }
+
+  connectToWiFi();
+  delay(1000); // Delay for wifi stabilization
+  timeClient.update();
+  unsigned long epochTime = timeClient.getEpochTime();
+  delay(1000); // Delay for NTP sync
+  updateWeatherData();
+  delay(1000); // Delay for weathersync
 
   if (!SPIFFS.begin(true)) {
     Serial.println("SPIFFS mount failed");
@@ -931,6 +935,35 @@ void setup() {
 
   server.on("/fallback", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send_P(200, "text/html", index_html);
+  });
+
+  server.on("/setName", HTTP_POST, [](AsyncWebServerRequest* request) {
+      if (request->hasArg("name")) {
+          String newName = request->arg("name");
+          // Validate the new name
+          if (newName.length() > 0 && newName.length() <= 32) {  // Reasonable length limit
+              // Save to preferences
+              preferences.putString("bleName", newName);
+              
+              // Update current name
+              currentBLEName = newName;
+              
+              // Restart mDNS with new name
+              MDNS.end();
+              if (MDNS.begin(currentBLEName.c_str())) {
+                  MDNS.addService("http", "tcp", 80);
+                  Serial.println("mDNS restarted with new name: " + currentBLEName);
+                  request->send(200, "text/plain", "BLE name updated to: " + currentBLEName);
+              } else {
+                  Serial.println("Failed to restart mDNS with new name: " + currentBLEName);
+                  request->send(500, "text/plain", "Failed to restart mDNS");
+              }
+          } else {
+              request->send(400, "text/plain", "Invalid name length (1-32 characters)");
+          }
+      } else {
+          request->send(400, "text/plain", "No name provided");
+      }
   });
 
   server.on("/toggleThermostat", HTTP_POST, [](AsyncWebServerRequest* request) {
@@ -1870,6 +1903,7 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
     }
 
     DynamicJsonDocument jsonDoc(10240);
+    jsonDoc["bleName"] = currentBLEName;
     jsonDoc["currentTemp"] = round(celsiusToFahrenheit(currentTemperature));
     jsonDoc["setTemp"] = round(celsiusToFahrenheit(setTemperature));
     jsonDoc["targettemp"] = round(celsiusToFahrenheit(targetSetTemperature));

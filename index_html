@@ -516,6 +516,32 @@
   #manualZipInput {
     background: darkred;
   }
+  /* Add to your existing <style> block */
+  .ble-name {
+    margin-top: 10px;
+    background: lightyellow;
+  }
+  #bleNameInput {
+    color: grey;
+    font-size:14px;
+    padding: 5px;
+    border: none;
+    border-radius: 4px;
+    margin-right: 5px;
+  }
+  #setBLENameButton {
+    background-color: #d35400;
+    border: none;
+    color: white;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+  }
+  #setBLENameButton:hover {
+    background-color: #e67e22;
+  }
 </style>
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -640,11 +666,11 @@
     </div>
   </div>
   <div id="fuelchart"><br>
-  <div class="data-box" id="totalGalLabel"><span>24HR Total Gals: </span><span id="totalGal" class="value">Calculating...</span></div>
+  <div class="data-box" id="totalGalLabel"><span>24HR Total: </span><span id="totalGal" class="value">Calculating...</span></div>
   </div>
   <canvas id="hourlyFuelChart" width="400" height="150"></canvas>
   <div id="wattchart"><br>
-  <label>24HR Avg: <span id="avgWattHours24h">0.00 Wh/Hr</span><span> / 24HR Total Wh: </span><span id="totalWh" class="value">Calculating...</span></label>
+  <label>24HR Avg: <span id="avgWattHours24h">0.00 W/Hr</span>&nbsp;&nbsp;|&nbsp;&nbsp;<span>24HR Total: </span><span id="totalWh" class="value">Calculating...</span></label>
   </div>
   <canvas id="wattHourChart" width="400" height="150"></canvas>
   <canvas id="voltageChart" width="400" height="150"></canvas>
@@ -668,6 +694,11 @@
       </thead>
       <tbody id="fileListBody"></tbody>
     </table>
+  </div>
+
+  <div style="text-align: center;" class="ble-name">
+    <span id="currentBLEName"></span><input type="text" id="bleNameInput" maxlength="32" placeholder="Enter new name">
+    <button id="setBLENameButton" onclick="setBLEName()">Set Name</button>
   </div>
 
 <script src="/chart.js"></script>

@@ -4,6 +4,7 @@ let isSliderActive = false; // Tracks if slider is being adjusted
 let tempAdjusting = false; // Tracks ESP32's tempadjusting state
 let pendingSetTemp = null; // Stores the user-selected setTemp during adjustment
 let isShuttingDown = false;
+let isEditingBLEName = false; // New flag to prevent BLE name updates during edit
 
 const QUICK_SET_TEMPS = {
   "Frost": 46,
@@ -363,6 +364,46 @@ function resetTank() {
   xhr.send();
 }
 
+function setBLEName() {
+  const newName = document.getElementById('bleNameInput').value.trim();
+  const validPattern = /^[a-zA-Z0-9\-_]*$/;
+  
+  if (!validPattern.test(newName)) {
+    alert('Name must contain only alphanumeric characters, "-", or "_".');
+    return;
+  }
+  if (newName.length === 0 || newName.length > 32) {
+    alert('Name must be between 1 and 32 characters.');
+    return;
+  }
+
+  fetch('/setName', {  // Ensure endpoint matches your server code
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'name=' + encodeURIComponent(newName)
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('Failed to set BLE name: ' + response.statusText);
+    }
+    return response.text();
+  })
+  .then(text => {
+    console.log(text);
+    document.getElementById('currentBLEName').textContent = newName;
+    document.getElementById('bleNameInput').value = ''; // Clear input
+    setTimeout(() => {
+      window.location.href = 'http://' + newName + '.local';
+    }, 15000); // 15-second delay before redirect
+    isEditingBLEName = false; // Reset flag after success
+  })
+  .catch(error => {
+    console.error('Error setting BLE name:', error);
+    alert('Failed to set BLE name. Check console for details.');
+    isEditingBLEName = false; // Reset flag on failure
+  });
+}
+
 function shutdownHeater() {
   var xhr = new XMLHttpRequest();
   xhr.open("POST", "/shutdownHeater");
@@ -451,6 +492,43 @@ document.addEventListener('DOMContentLoaded', function() {
   let lastClickedButton = null; // Track the last clicked button
   let serverZipCode = "64856"; // Default until we get the first event
   let hasGeolocationFailed = false;
+
+  // Add BLE name input event listeners
+  const bleNameInput = document.getElementById('bleNameInput');
+  if (bleNameInput) {
+    bleNameInput.addEventListener('focus', function() {
+      isEditingBLEName = true;
+      console.log("Started editing BLE name");
+    });
+
+    bleNameInput.addEventListener('blur', function() {
+      setTimeout(() => {
+        if (bleNameInput.value.trim() === '') {
+          isEditingBLEName = false;
+          console.log("Stopped editing BLE name (blur with empty input)");
+        }
+      }, 100);
+    });
+
+    bleNameInput.addEventListener('input', function() {
+      const validPattern = /^[a-zA-Z0-9\-_]*$/;
+      if (!validPattern.test(bleNameInput.value)) {
+        bleNameInput.value = bleNameInput.value.replace(/[^a-zA-Z0-9\-_]/g, '');
+      }
+      if (bleNameInput.value.length > 32) {
+        bleNameInput.value = bleNameInput.value.substring(0, 32);
+      }
+    });
+
+    bleNameInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        setBLEName();
+      }
+    });
+  }
+
+  document.getElementById("setBLENameButton")?.addEventListener('click', setBLEName);
+
 
   // Function to fetch zip code from coordinates
   function fetchZipCodeFromCoords(lat, lon) {
@@ -914,14 +992,14 @@ var wattHourChart = new Chart(ctxWattHour, {
     labels: [],
     datasets: [
       {
-        label: 'Watt-HR',
+        label: 'Watt',
         data: [],
         backgroundColor: 'rgba(0, 128, 255, 0.7)',
         borderColor: 'rgba(0, 128, 255, 1)',
         borderWidth: 1
       },
       {
-        label: 'Watt-HR (In Progress)',
+        label: 'Watt (In Progress)',
         data: [],
         backgroundColor: 'rgba(0, 128, 255, 0.3)',
         borderColor: 'rgba(0, 128, 255, 1)',
@@ -946,7 +1024,7 @@ var wattHourChart = new Chart(ctxWattHour, {
         title: { display: false, text: 'Watt-Hours', color: 'grey' },
         ticks: {
           stepSize: 10,
-          callback: function(value) { return value.toFixed(0) + ' Wh'; },
+          callback: function(value) { return value.toFixed(0) + ' W'; },
           color: 'grey'
         },
         afterDataLimits: function(scale) {
@@ -1070,6 +1148,10 @@ var wattHourChart = new Chart(ctxWattHour, {
         if (eventName === 'heater_update') {
           var data = JSON.parse(eventData);
           var currentTime = new Date().getTime();
+
+        if (data.bleName && !isEditingBLEName) {
+          document.getElementById('currentBLEName').textContent = data.bleName;
+        }
 
         if (data.zipcode) {
           serverZipCode = data.zipcode;
@@ -1293,7 +1375,7 @@ var wattHourChart = new Chart(ctxWattHour, {
             
             // Sum historical watt-hours and add accumulator
             const totalWattHours = hourlyWattHours.reduce((sum, value) => sum + value, 0) + wattHourAccumulator;
-            document.getElementById("totalWh").textContent = totalWattHours.toFixed(2) + " Wh";
+            document.getElementById("totalWh").textContent = totalWattHours.toFixed(2) + " W";
           }
 
 
@@ -1398,7 +1480,7 @@ var wattHourChart = new Chart(ctxWattHour, {
 
             wattHourChart.update();
           }
-          document.getElementById("avgWattHours24h").textContent = data.avgWattHours24h.toFixed(2) + " Wh/Hr";
+          document.getElementById("avgWattHours24h").textContent = data.avgWattHours24h.toFixed(2) + " W/Hr";
 
           // Update tempChart with sparsified datasets
           if (tempChart) {
