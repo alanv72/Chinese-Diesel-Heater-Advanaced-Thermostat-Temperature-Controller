@@ -1542,264 +1542,270 @@ void loop() {
 
   }
 
-// Fan control and sensor reading
-static unsigned long lastSensorRead = 0;
-const unsigned long READ_INTERVAL = 2000;
-const float VOLTAGE_CHANGE_THRESHOLD = 0.1;
-const float PWM_VOLTAGE_THRESHOLD = 0.2; // New threshold for PWM update (0.2V)
-if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-safe
-    sensors.requestTemperatures();
-    walltemp = sensors.getTempCByIndex(0);
-    if (walltemp == DEVICE_DISCONNECTED_C) {
-        if (DEBUG) Serial.println("Error: DS18B20 sensor disconnected");
-    } else if (DEBUG) {
-        Serial.printf("Wall Temp: %d°F\n", (int)(walltemp * 1.8 + 32));
-    }
+  if (temperatureChangeByWeb && !serialActive) {
+        temperatureChangeByWeb = false;
+        message = "Temp change ignored. Serial Comms down.";
+  }
 
-    float wallTempF = celsiusToFahrenheit(walltemp);
-    if (walltemp == DEVICE_DISCONNECTED_C) {
-        tempwarn = -1;
-    } else {
-        if (wallTempF > 120.0) {
-            uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
-            sendData(data1, 24);
-            cshut = 1;
-            controlEnable = 0;
-            tempwarn = 2;
-            if (DEBUG) Serial.printf("Wall temp %.1f°F > 120°F, shutting down heater\n", wallTempF);
-        } else if (wallTempF > 110.0) {
-            tempwarn = 1;
-            if (DEBUG) Serial.printf("Wall temp %.1f°F > 110°F\n", wallTempF);
-        } else {
-            tempwarn = 0;
-        }
-    }
-
-    if (frostModeEnabled) {
-      if (wallTempF < 40.0 && heaterStateNum == 0) {
-        controlEnable = 0;
-        uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
-        sendData(data1, 24);
-        Serial.println("Frost Mode: Starting Heater");
-        message = "Frost Mode Start";
-      } else if (wallTempF >= 46.0 && heaterStateNum > 0) {
-        uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
-        sendData(data1, 24);
-        Serial.println("Frost Mode: Shutting Down Heater");
-        message = "Frost Mode Shutdown";
+  // Fan control and sensor reading
+  static unsigned long lastSensorRead = 0;
+  const unsigned long READ_INTERVAL = 2000;
+  const float VOLTAGE_CHANGE_THRESHOLD = 0.1;
+  const float PWM_VOLTAGE_THRESHOLD = 0.2; // New threshold for PWM update (0.2V)
+  if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-safe
+      sensors.requestTemperatures();
+      walltemp = sensors.getTempCByIndex(0);
+      if (walltemp == DEVICE_DISCONNECTED_C) {
+          if (DEBUG) Serial.println("Error: DS18B20 sensor disconnected");
+      } else if (DEBUG) {
+          Serial.printf("Wall Temp: %d°F\n", (int)(walltemp * 1.8 + 32));
       }
-    }
 
-    // Update cached PWM values only if supply voltage changed significantly
-    static float lastSupplyVoltage = -1.0; 
-    if (abs(supplyVoltage - lastSupplyVoltage) > VOLTAGE_CHANGE_THRESHOLD || lastSupplyVoltage < 0) {
-        if (!voltagegood) {
-            cachedFanLow = cachedFanMed = cachedFanHigh = 0;
-        } else {
-            cachedFanLow = calculateAdjustedPWM(MIN_FAN_VOLTAGE, supplyVoltage);  // 10.5V
-            cachedFanMed = calculateAdjustedPWM(MED_FAN_VOLTAGE, supplyVoltage);  // 11.5V
-            cachedFanHigh = calculateAdjustedPWM(supplyVoltage, supplyVoltage);   // supplyVoltage (e.g., 12V+)
+      float wallTempF = celsiusToFahrenheit(walltemp);
+      if (walltemp == DEVICE_DISCONNECTED_C) {
+          tempwarn = -1;
+      } else {
+          if (wallTempF > 120.0) {
+              uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
+              sendData(data1, 24);
+              cshut = 1;
+              controlEnable = 0;
+              tempwarn = 2;
+              if (DEBUG) Serial.printf("Wall temp %.1f°F > 120°F, shutting down heater\n", wallTempF);
+          } else if (wallTempF > 110.0) {
+              tempwarn = 1;
+              if (DEBUG) Serial.printf("Wall temp %.1f°F > 110°F\n", wallTempF);
+          } else {
+              tempwarn = 0;
+          }
+      }
+
+      if (frostModeEnabled) {
+        if (wallTempF < 40.0 && heaterStateNum == 0) {
+          controlEnable = 0;
+          uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
+          sendData(data1, 24);
+          Serial.println("Frost Mode: Starting Heater");
+          message = "Frost Mode Start";
+        } else if (wallTempF >= 46.0 && heaterStateNum > 0) {
+          uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
+          sendData(data1, 24);
+          Serial.println("Frost Mode: Shutting Down Heater");
+          message = "Frost Mode Shutdown";
         }
-        lastSupplyVoltage = supplyVoltage;
-    }
+      }
 
-    float validatedSupply = (supplyVoltage <= 9.0 || supplyVoltage > 15.0 || isnan(supplyVoltage)) ? 12.0 : supplyVoltage;
-    float gapC = constrain(walltemptrigger, -1, 10);
-    static unsigned long speedChangeDelay = 0;
-    const unsigned long DEBOUNCE_PERIOD = 30000;
+      // Update cached PWM values only if supply voltage changed significantly
+      static float lastSupplyVoltage = -1.0; 
+      if (abs(supplyVoltage - lastSupplyVoltage) > VOLTAGE_CHANGE_THRESHOLD || lastSupplyVoltage < 0) {
+          if (!voltagegood) {
+              cachedFanLow = cachedFanMed = cachedFanHigh = 0;
+          } else {
+              cachedFanLow = calculateAdjustedPWM(MIN_FAN_VOLTAGE, supplyVoltage);  // 10.5V
+              cachedFanMed = calculateAdjustedPWM(MED_FAN_VOLTAGE, supplyVoltage);  // 11.5V
+              cachedFanHigh = calculateAdjustedPWM(supplyVoltage, supplyVoltage);   // supplyVoltage (e.g., 12V+)
+          }
+          lastSupplyVoltage = supplyVoltage;
+      }
 
-    // Duct fan control
-    static int lastDuctFanPWM = -1;
-    static float lastDuctVoltage = -1.0; // Track last applied voltage
-    if (ductFanManualControl) {
-        if (manualDuctFanVoltage > 0) {
-            float newVoltage = manualDuctFanVoltage;
-            if (abs(newVoltage - lastDuctVoltage) >= PWM_VOLTAGE_THRESHOLD || lastDuctVoltage < 0) {
-                manualDuctFanSpeed = calculateAdjustedPWM(newVoltage, supplyVoltage);
-                ductfan = manualDuctFanSpeed; // Sync ductfan with manual PWM
-                lastDuctVoltage = newVoltage;
-            }
-        } else {
-            manualDuctFanSpeed = 0;
-            ductfan = 0;
-            lastDuctVoltage = 0.0;
-        }
-        ledcWrite(DUCT_FAN_PWM_PIN, manualDuctFanSpeed);
-        lastDuctFanPWM = manualDuctFanSpeed;
-        if (DEBUG) Serial.printf("Duct fan manual: PWM=%d, Voltage=%.1fV\n", manualDuctFanSpeed, manualDuctFanVoltage);
-    } else {
-        int newDuctFanPWM = 0;
-        static unsigned long ductfandelay = 0;
-        float newVoltage = 0.0;
+      float validatedSupply = (supplyVoltage <= 9.0 || supplyVoltage > 15.0 || isnan(supplyVoltage)) ? 12.0 : supplyVoltage;
+      float gapC = constrain(walltemptrigger, -1, 10);
+      static unsigned long speedChangeDelay = 0;
+      const unsigned long DEBOUNCE_PERIOD = 30000;
 
-        if (walltemp > -55 && walltemp < 125 && currentTemperature != -200.0f) {
-            float tempGap = walltemp - currentTemperature;
+      // Duct fan control
+      static int lastDuctFanPWM = -1;
+      static float lastDuctVoltage = -1.0; // Track last applied voltage
+      if (ductFanManualControl) {
+          if (manualDuctFanVoltage > 0) {
+              float newVoltage = manualDuctFanVoltage;
+              if (abs(newVoltage - lastDuctVoltage) >= PWM_VOLTAGE_THRESHOLD || lastDuctVoltage < 0) {
+                  manualDuctFanSpeed = calculateAdjustedPWM(newVoltage, supplyVoltage);
+                  ductfan = manualDuctFanSpeed; // Sync ductfan with manual PWM
+                  lastDuctVoltage = newVoltage;
+              }
+          } else {
+              manualDuctFanSpeed = 0;
+              ductfan = 0;
+              lastDuctVoltage = 0.0;
+          }
+          ledcWrite(DUCT_FAN_PWM_PIN, manualDuctFanSpeed);
+          lastDuctFanPWM = manualDuctFanSpeed;
+          if (DEBUG) Serial.printf("Duct fan manual: PWM=%d, Voltage=%.1fV\n", manualDuctFanSpeed, manualDuctFanVoltage);
+      } else {
+          int newDuctFanPWM = 0;
+          static unsigned long ductfandelay = 0;
+          float newVoltage = 0.0;
 
-            if (tempGap < gapC) {
-                if (ductfandelay == 0) {
-                    ductfandelay = millis() + 60000;
-                    if (DEBUG) Serial.printf("Duct fan preparing to turn off, delay until %lu\n", ductfandelay);
-                }
-                if (millis() >= ductfandelay) {
-                    newDuctFanPWM = 0;
-                    newVoltage = 0.0;
-                } else {
-                    newDuctFanPWM = ductfan;  // Hold current PWM during delay
-                    newVoltage = lastDuctVoltage; // Maintain last voltage during delay
-                }
-            } else if (voltagegood) {
-                if (tempGap < gapC + 1) {
-                    newDuctFanPWM = cachedFanLow;
-                    newVoltage = MIN_FAN_VOLTAGE; // 10.5V
-                } else if (tempGap < gapC + 2) {
-                    newDuctFanPWM = cachedFanMed;
-                    newVoltage = MED_FAN_VOLTAGE; // 11.5V
-                } else {
-                    newDuctFanPWM = cachedFanHigh;
-                    newVoltage = validatedSupply; // supplyVoltage
-                }
-                ductfandelay = 0;
-                if (DEBUG) Serial.printf("Duct fan auto (tempGap mode): tempGap=%.1f, PWM=%d, Voltage=%.1fV\n",
-                    tempGap, newDuctFanPWM, newVoltage);
-            } else {
-                newDuctFanPWM = 0;
-                newVoltage = 0.0;
-                if (DEBUG) Serial.printf("Duct fan off (voltage not good)\n");
-            }
+          if (walltemp > -55 && walltemp < 125 && currentTemperature != -200.0f) {
+              float tempGap = walltemp - currentTemperature;
 
-            // Mode 1: Fan speed-based control (if tempGap isn’t driving)
-            if (newDuctFanPWM == 0 && fanSpeed > 2000 && heaterStateNum > 3) {
-                newVoltage = map(fanSpeed, 2000, 4900, 10.0, validatedSupply);
-                newVoltage = constrain(newVoltage, 10.0, validatedSupply);
-                newDuctFanPWM = calculateAdjustedPWM(newVoltage, validatedSupply);
-                ductfandelay = 0;
-                if (DEBUG) Serial.printf("Duct fan auto (fanSpeed mode): fanSpeed=%d, heaterState=%d, targetV=%.1f, PWM=%d\n",
-                    fanSpeed, heaterStateNum, newVoltage, newDuctFanPWM);
-            }
-        } else {
-            if (fanSpeed > 2000 && heaterStateNum > 3) {
-                newVoltage = map(fanSpeed, 2000, 4900, 10.0, validatedSupply);
-                newVoltage = constrain(newVoltage, 10.0, validatedSupply);
-                newDuctFanPWM = calculateAdjustedPWM(newVoltage, validatedSupply);
-                ductfandelay = 0;
-                if (DEBUG) Serial.printf("Duct fan auto (fanSpeed mode, temp invalid): fanSpeed=%d, heaterState=%d, targetV=%.1f, PWM=%d\n",
-                    fanSpeed, heaterStateNum, newVoltage, newDuctFanPWM);
-            } else {
-                newDuctFanPWM = 0;
-                newVoltage = 0.0;
-                ductfandelay = 0;
-                if (DEBUG && lastDuctFanPWM != 0) Serial.printf("Duct fan auto: Neither mode applies, PWM=0\n");
-            }
-        }
+              if (tempGap < gapC) {
+                  if (ductfandelay == 0) {
+                      ductfandelay = millis() + 60000;
+                      if (DEBUG) Serial.printf("Duct fan preparing to turn off, delay until %lu\n", ductfandelay);
+                  }
+                  if (millis() >= ductfandelay) {
+                      newDuctFanPWM = 0;
+                      newVoltage = 0.0;
+                  } else {
+                      newDuctFanPWM = ductfan;  // Hold current PWM during delay
+                      newVoltage = lastDuctVoltage; // Maintain last voltage during delay
+                  }
+              } else if (voltagegood) {
+                  if (tempGap < gapC + 1) {
+                      newDuctFanPWM = cachedFanLow;
+                      newVoltage = MIN_FAN_VOLTAGE; // 10.5V
+                  } else if (tempGap < gapC + 2) {
+                      newDuctFanPWM = cachedFanMed;
+                      newVoltage = MED_FAN_VOLTAGE; // 11.5V
+                  } else {
+                      newDuctFanPWM = cachedFanHigh;
+                      newVoltage = validatedSupply; // supplyVoltage
+                  }
+                  ductfandelay = 0;
+                  if (DEBUG) Serial.printf("Duct fan auto (tempGap mode): tempGap=%.1f, PWM=%d, Voltage=%.1fV\n",
+                      tempGap, newDuctFanPWM, newVoltage);
+              } else {
+                  newDuctFanPWM = 0;
+                  newVoltage = 0.0;
+                  if (DEBUG) Serial.printf("Duct fan off (voltage not good)\n");
+              }
 
-        // Update ductfan only if voltage changes by 0.2V or more
-        if (abs(newVoltage - lastDuctVoltage) >= PWM_VOLTAGE_THRESHOLD || lastDuctVoltage < 0) {
-            ductfan = newDuctFanPWM;
-            lastDuctVoltage = newVoltage;
-        } else {
-            newDuctFanPWM = ductfan; // Retain last PWM if voltage change is small
-        }
+              // Mode 1: Fan speed-based control (if tempGap isn’t driving)
+              if (newDuctFanPWM == 0 && fanSpeed > 2000 && heaterStateNum > 3) {
+                  newVoltage = map(fanSpeed, 2000, 4900, 10.0, validatedSupply);
+                  newVoltage = constrain(newVoltage, 10.0, validatedSupply);
+                  newDuctFanPWM = calculateAdjustedPWM(newVoltage, validatedSupply);
+                  ductfandelay = 0;
+                  if (DEBUG) Serial.printf("Duct fan auto (fanSpeed mode): fanSpeed=%d, heaterState=%d, targetV=%.1f, PWM=%d\n",
+                      fanSpeed, heaterStateNum, newVoltage, newDuctFanPWM);
+              }
+          } else {
+              if (fanSpeed > 2000 && heaterStateNum > 3) {
+                  newVoltage = map(fanSpeed, 2000, 4900, 10.0, validatedSupply);
+                  newVoltage = constrain(newVoltage, 10.0, validatedSupply);
+                  newDuctFanPWM = calculateAdjustedPWM(newVoltage, validatedSupply);
+                  ductfandelay = 0;
+                  if (DEBUG) Serial.printf("Duct fan auto (fanSpeed mode, temp invalid): fanSpeed=%d, heaterState=%d, targetV=%.1f, PWM=%d\n",
+                      fanSpeed, heaterStateNum, newVoltage, newDuctFanPWM);
+              } else {
+                  newDuctFanPWM = 0;
+                  newVoltage = 0.0;
+                  ductfandelay = 0;
+                  if (DEBUG && lastDuctFanPWM != 0) Serial.printf("Duct fan auto: Neither mode applies, PWM=0\n");
+              }
+          }
 
-        ledcWrite(DUCT_FAN_PWM_PIN, newDuctFanPWM);
-        if (newDuctFanPWM != lastDuctFanPWM) {
-            if (DEBUG) Serial.printf("Duct fan PWM updated: %d -> %d, Voltage=%.1fV\n", lastDuctFanPWM, newDuctFanPWM, lastDuctVoltage);
-            lastDuctFanPWM = newDuctFanPWM;
-        }
-    }
-    ductFanVoltage = lastDuctVoltage; // Update global for power calculation
+          // Update ductfan only if voltage changes by 0.2V or more
+          if (abs(newVoltage - lastDuctVoltage) >= PWM_VOLTAGE_THRESHOLD || lastDuctVoltage < 0) {
+              ductfan = newDuctFanPWM;
+              lastDuctVoltage = newVoltage;
+          } else {
+              newDuctFanPWM = ductfan; // Retain last PWM if voltage change is small
+          }
 
-    // Wall fan control
-    static int lastWallFanPWM = -1;
-    static float lastWallVoltage = -1.0; // Track last applied voltage
-    if (wallFanManualControl) {
-        float newVoltage = manualWallFanVoltage;
-        if (newVoltage >= 0) {
-            float percent = (newVoltage - 6.7) / (HIGH_FAN_VOLTAGE - 6.7) * 100.0;
-            if (percent <= 0 || newVoltage == 0) {
-                manualWallFanSpeed = 0;
-                newVoltage = 0.0;
-            } else if (percent <= 50.0) {
-                float voltageRange = 9.5 - 6.7;
-                newVoltage = 6.7 + (percent / 50.0) * voltageRange;
-                manualWallFanSpeed = (int)(cachedFanLow * (6.7 / 10.5) + (cachedFanMed * (9.5 / 11.5) - cachedFanLow * (6.7 / 10.5)) * (percent / 50.0));
-            } else {
-                float voltageRange = validatedSupply - 9.5;
-                newVoltage = 9.5 + ((percent - 50.0) / 50.0) * voltageRange;
-                manualWallFanSpeed = (int)(cachedFanMed * (9.5 / 11.5) + (cachedFanHigh - cachedFanMed * (9.5 / 11.5)) * ((percent - 50.0) / 50.0));
-            }
-            manualWallFanSpeed = constrain(manualWallFanSpeed, 0, PWM_MAX);
-            if (abs(newVoltage - lastWallVoltage) >= PWM_VOLTAGE_THRESHOLD || lastWallVoltage < 0) {
-                wallfan = manualWallFanSpeed;
-                lastWallVoltage = newVoltage;
-            }
-            if (DEBUG) Serial.printf("Wall fan manual: Percent=%.1f%%, Voltage=%.1fV, PWM=%d\n", percent, newVoltage, manualWallFanSpeed);
-        }
-        ledcWrite(WALL_FAN_PWM_PIN, manualWallFanSpeed);
-        lastWallFanPWM = manualWallFanSpeed;
-    } else {
-        int newWallFanPWM = 0;
-        float newVoltage = 0.0;
+          ledcWrite(DUCT_FAN_PWM_PIN, newDuctFanPWM);
+          if (newDuctFanPWM != lastDuctFanPWM) {
+              if (DEBUG) Serial.printf("Duct fan PWM updated: %d -> %d, Voltage=%.1fV\n", lastDuctFanPWM, newDuctFanPWM, lastDuctVoltage);
+              lastDuctFanPWM = newDuctFanPWM;
+          }
+      }
+      ductFanVoltage = lastDuctVoltage; // Update global for power calculation
 
-        if (voltagegood && heaterStateNum > 3 && heaterinternalTemp >= 38) {
-            if (fanSpeed <= 2000) {
-                if (wallfandelay == 0) {
-                    wallfandelay = millis() + 30000; // 30-second delay to turn off
-                    if (DEBUG) Serial.printf("Wall fan preparing to turn off (low speed), delay until %lu\n", wallfandelay);
-                }
-                if (millis() >= wallfandelay) {
-                    newWallFanPWM = 0;
-                    newVoltage = 0.0;
-                } else {
-                    newWallFanPWM = wallfan; // Hold last PWM during delay
-                    newVoltage = lastWallVoltage; // Maintain last voltage during delay
-                }
-            } else {
-                // Linear interpolation: 2000 RPM (6.7V) to 5000 RPM (supplyVoltage)
-                float minPWM = cachedFanLow * (6.7 / 10.5); // 6.7V
-                float maxPWM = cachedFanHigh; // supplyVoltage
-                float rpmRange = 4900.0 - 2000.0; // 3000 RPM span
-                float pwmRange = maxPWM - minPWM;
-                float rpmFraction = (fanSpeed - 2000.0) / rpmRange; // 0.0 at 2000, 1.0 at 5000
-                newWallFanPWM = (int)(minPWM + pwmRange * (fanSpeed < 4900 ? rpmFraction : 1.0));
-                newWallFanPWM = constrain(newWallFanPWM, (int)minPWM, (int)maxPWM);
-                newVoltage = 6.7 + (rpmFraction * (validatedSupply - 6.7)); // Voltage mapping
-                wallfandelay = 0; // No delay on speed changes
-            }
-        } else if (wallfan > 0) { // Condition false but fan was on
-            if (wallfandelay == 0) {
-                wallfandelay = millis() + 30000; // 30-second delay to turn off
-                if (DEBUG) Serial.printf("Wall fan preparing to turn off (state/voltage), delay until %lu\n", wallfandelay);
-            }
-            if (millis() >= wallfandelay) {
-                newWallFanPWM = 0;
-                newVoltage = 0.0;
-            } else {
-                newWallFanPWM = wallfan; // Hold last PWM during delay
-                newVoltage = lastWallVoltage; // Maintain last voltage during delay
-            }
-        } else {
-            newWallFanPWM = 0;
-            newVoltage = 0.0;
-        }
+      // Wall fan control
+      static int lastWallFanPWM = -1;
+      static float lastWallVoltage = -1.0; // Track last applied voltage
+      if (wallFanManualControl) {
+          float newVoltage = manualWallFanVoltage;
+          if (newVoltage >= 0) {
+              float percent = (newVoltage - 6.7) / (HIGH_FAN_VOLTAGE - 6.7) * 100.0;
+              if (percent <= 0 || newVoltage == 0) {
+                  manualWallFanSpeed = 0;
+                  newVoltage = 0.0;
+              } else if (percent <= 50.0) {
+                  float voltageRange = 9.5 - 6.7;
+                  newVoltage = 6.7 + (percent / 50.0) * voltageRange;
+                  manualWallFanSpeed = (int)(cachedFanLow * (6.7 / 10.5) + (cachedFanMed * (9.5 / 11.5) - cachedFanLow * (6.7 / 10.5)) * (percent / 50.0));
+              } else {
+                  float voltageRange = validatedSupply - 9.5;
+                  newVoltage = 9.5 + ((percent - 50.0) / 50.0) * voltageRange;
+                  manualWallFanSpeed = (int)(cachedFanMed * (9.5 / 11.5) + (cachedFanHigh - cachedFanMed * (9.5 / 11.5)) * ((percent - 50.0) / 50.0));
+              }
+              manualWallFanSpeed = constrain(manualWallFanSpeed, 0, PWM_MAX);
+              if (abs(newVoltage - lastWallVoltage) >= PWM_VOLTAGE_THRESHOLD || lastWallVoltage < 0) {
+                  wallfan = manualWallFanSpeed;
+                  lastWallVoltage = newVoltage;
+              }
+              if (DEBUG) Serial.printf("Wall fan manual: Percent=%.1f%%, Voltage=%.1fV, PWM=%d\n", percent, newVoltage, manualWallFanSpeed);
+          }
+          ledcWrite(WALL_FAN_PWM_PIN, manualWallFanSpeed);
+          lastWallFanPWM = manualWallFanSpeed;
+      } else {
+          int newWallFanPWM = 0;
+          float newVoltage = 0.0;
 
-        // Update wallfan only if voltage changes by 0.2V or more
-        if (abs(newVoltage - lastWallVoltage) >= PWM_VOLTAGE_THRESHOLD || lastWallVoltage < 0) {
-            wallfan = newWallFanPWM;
-            lastWallVoltage = newVoltage;
-        } else {
-            newWallFanPWM = wallfan; // Retain last PWM if voltage change is small
-        }
+          if (voltagegood && heaterStateNum > 3 && heaterinternalTemp >= 38) {
+              if (fanSpeed <= 2000) {
+                  if (wallfandelay == 0) {
+                      wallfandelay = millis() + 30000; // 30-second delay to turn off
+                      if (DEBUG) Serial.printf("Wall fan preparing to turn off (low speed), delay until %lu\n", wallfandelay);
+                  }
+                  if (millis() >= wallfandelay) {
+                      newWallFanPWM = 0;
+                      newVoltage = 0.0;
+                  } else {
+                      newWallFanPWM = wallfan; // Hold last PWM during delay
+                      newVoltage = lastWallVoltage; // Maintain last voltage during delay
+                  }
+              } else {
+                  // Linear interpolation: 2000 RPM (6.7V) to 5000 RPM (supplyVoltage)
+                  float minPWM = cachedFanLow * (6.7 / 10.5); // 6.7V
+                  float maxPWM = cachedFanHigh; // supplyVoltage
+                  float rpmRange = 4900.0 - 2000.0; // 3000 RPM span
+                  float pwmRange = maxPWM - minPWM;
+                  float rpmFraction = (fanSpeed - 2000.0) / rpmRange; // 0.0 at 2000, 1.0 at 5000
+                  newWallFanPWM = (int)(minPWM + pwmRange * (fanSpeed < 4900 ? rpmFraction : 1.0));
+                  newWallFanPWM = constrain(newWallFanPWM, (int)minPWM, (int)maxPWM);
+                  newVoltage = 6.7 + (rpmFraction * (validatedSupply - 6.7)); // Voltage mapping
+                  wallfandelay = 0; // No delay on speed changes
+              }
+          } else if (wallfan > 0) { // Condition false but fan was on
+              if (wallfandelay == 0) {
+                  wallfandelay = millis() + 30000; // 30-second delay to turn off
+                  if (DEBUG) Serial.printf("Wall fan preparing to turn off (state/voltage), delay until %lu\n", wallfandelay);
+              }
+              if (millis() >= wallfandelay) {
+                  newWallFanPWM = 0;
+                  newVoltage = 0.0;
+              } else {
+                  newWallFanPWM = wallfan; // Hold last PWM during delay
+                  newVoltage = lastWallVoltage; // Maintain last voltage during delay
+              }
+          } else {
+              newWallFanPWM = 0;
+              newVoltage = 0.0;
+          }
 
-        ledcWrite(WALL_FAN_PWM_PIN, newWallFanPWM);
-        if (newWallFanPWM != lastWallFanPWM) {
-            if (DEBUG) Serial.printf("Wall fan PWM updated: %d -> %d, Voltage=%.1fV\n", lastWallFanPWM, newWallFanPWM, lastWallVoltage);
-            lastWallFanPWM = newWallFanPWM;
-        }
-    }
-    wallFanVoltage = lastWallVoltage; // Update global for power calculation
+          // Update wallfan only if voltage changes by 0.2V or more
+          if (abs(newVoltage - lastWallVoltage) >= PWM_VOLTAGE_THRESHOLD || lastWallVoltage < 0) {
+              wallfan = newWallFanPWM;
+              lastWallVoltage = newVoltage;
+          } else {
+              newWallFanPWM = wallfan; // Retain last PWM if voltage change is small
+          }
 
-    lastSensorRead = millis();
-}
+          ledcWrite(WALL_FAN_PWM_PIN, newWallFanPWM);
+          if (newWallFanPWM != lastWallFanPWM) {
+              if (DEBUG) Serial.printf("Wall fan PWM updated: %d -> %d, Voltage=%.1fV\n", lastWallFanPWM, newWallFanPWM, lastWallVoltage);
+              lastWallFanPWM = newWallFanPWM;
+          }
+      }
+      wallFanVoltage = lastWallVoltage; // Update global for power calculation
+
+      lastSensorRead = millis();
+  }
+  
   float remainingFuelGallons = tankSizeGallons - (tankConsumption * ML_TO_GALLON);
   float rollingRuntimeHours = (remainingFuelGallons / rollingAvgGPH);
   float remainingRuntimeHours = NAN; // Default to NAN
