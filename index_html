@@ -697,7 +697,7 @@
   </div>
 
   <div style="text-align: center;" class="ble-name">
-    <span id="currentBLEName"></span><input type="text" id="bleNameInput" maxlength="32" placeholder="Enter new name">
+    <span id="currentBLEName"></span>&nbsp;<input type="text" id="bleNameInput" maxlength="32" placeholder="Enter new name">
     <button id="setBLENameButton" onclick="setBLEName()">Set Name</button>
   </div>
 

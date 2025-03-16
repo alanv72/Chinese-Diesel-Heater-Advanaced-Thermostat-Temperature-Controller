@@ -95,6 +95,7 @@ unsigned long lastMillis = 0;
 unsigned long overflowCount = 0;
 unsigned long long uptime = 0; // Changed to unsigned long long
 unsigned long lastMemoryCheckTime = 0;
+unsigned int serialinterruptcount = 0;
 
 //default name
 String currentBLEName = "HEATER-THERM";
@@ -285,13 +286,13 @@ float calculateDuctFanAmps(float voltage) {
 float calculateWallFanAmps(float voltage) {
   if (voltage <= 0) return 0.0; // Invalid input
   if (voltage <= 6.0) {
-    return (voltage / 6.0) * 0.53; // 0V to 6V: 0A to 0.53A
+    return (voltage / 6.0) * 0.4; // 0V to 6V: 0A to 0.4A
   } else if (voltage <= 9.0) {
-    float slope = (1.1 - 0.53) / (9.0 - 6.0); // 0.19 A/V
-    return 0.53 + slope * (voltage - 6.0); // 6V to 9V
+    float slope = (1.0 - 0.4) / (9.0 - 6.0); // 0.2 A/V
+    return 0.4 + slope * (voltage - 6.0); // 6V to 9V
   } else {
-    float slope = (1.65 - 1.1) / (12.0 - 9.0); // 0.18333 A/V
-    return 1.1 + slope * (voltage - 9.0); // 9V and beyond
+    float slope = (1.25 - 1.0) / (12.0 - 9.0); // 0.08333 A/V
+    return 1.0 + slope * (voltage - 9.0); // 9V and beyond
   }
 }
 
@@ -538,6 +539,7 @@ void checkWiFiConnection() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi disconnected. Attempting reconnection...");
     server.end();
+    MDNS.end();
     connectToWiFi();
     server.begin();
   }
@@ -772,7 +774,7 @@ void setup() {
   esp_task_wdt_deinit();  // wdt is initialized by default. disable and reconfig
   esp_task_wdt_config_t wdt_config = {
     .timeout_ms = 30000,                             // 30s timeout
-    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,  // All cores
+    .idle_core_mask = (0),  // All cores
     .trigger_panic = false                            // Do not trigger panic on timeout, just warn
   };
   esp_task_wdt_init(&wdt_config);
@@ -885,9 +887,12 @@ void setup() {
   delay(1000); // Delay for wifi stabilization
   timeClient.update();
   unsigned long epochTime = timeClient.getEpochTime();
+  Serial.print("Manage at http://" + currentBLEName + ".local or http://");
+  Serial.println(WiFi.localIP());
   delay(1000); // Delay for NTP sync
   updateWeatherData();
   delay(1000); // Delay for weathersync
+  esp_task_wdt_reset();
 
   if (!SPIFFS.begin(true)) {
     Serial.println("SPIFFS mount failed");
@@ -911,6 +916,8 @@ void setup() {
   } else {
     Serial.println("History loaded successfully");
   }
+
+  esp_task_wdt_reset();
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, "/index_html", "text/html");
@@ -1329,6 +1336,8 @@ void loop() {
   // Prioritize serial reads
   static byte Data[48];  // For compatibility with existing code
   static int count = 0;  // Tracks combined frame size
+  esp_task_wdt_reset();
+  if (DEBUG) Serial.println("Sent wdt rest");
 
   if (sOne.available() && eventen) {
     int inByte = sOne.read();
@@ -1516,12 +1525,21 @@ void loop() {
       DynamicJsonDocument jsonDoc(1024);
       jsonDoc["controlEnable"] = controlEnable;    
       jsonDoc["serialActive"] = serialActive;
+      jsonDoc["serialinterruptcount"] = serialinterruptcount;
       String jsonString;
       serializeJson(jsonDoc, jsonString);
       String eventString = "event: heater_update\ndata: " + jsonString + "\n\n";
       events.send(eventString.c_str());
     }
-    if (DEBUG) Serial.println("Serial communication stopped");
+    serialinterruptcount++;
+    Serial.println("Serial communication stopped " + String(serialinterruptcount) + "times.");
+    //jiggle controller
+    // Send button command to "wake-up" controller
+    pinMode(HEATER_PIN, INPUT_PULLDOWN);  //Pull comms down
+    simulateButtonPress(increaseTempPin);
+    simulateButtonPress(decreaseTempPin);
+    pinMode(HEATER_PIN, INPUT);  // Set back to input
+
   }
 
 // Fan control and sensor reading
@@ -1782,8 +1800,10 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
 
     lastSensorRead = millis();
 }
-
-  // Event updates every 2s
+  float remainingFuelGallons = tankSizeGallons - (tankConsumption * ML_TO_GALLON);
+  float rollingRuntimeHours = (remainingFuelGallons / rollingAvgGPH);
+  float remainingRuntimeHours = NAN; // Default to NAN
+  // updates calcs and accumulators if serial is active every 2s
   static unsigned long lastEvent = 0;
   if ((unsigned long)(millis() - lastEvent) >= 2000 && serialActive) { // Overflow-safe
     lastEvent = millis();
@@ -1829,7 +1849,6 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
     float recentAvgGPH = 0.0;
     int validHours = 0;
     const int HOURS_TO_AVERAGE = 12; // Use last 6 hours (adjustable)
-    float remainingRuntimeHours = NAN; // Default to NAN
     unsigned long currentTime = timeClient.getEpochTime();
 
     // Calculate average GPH from the last HOURS_TO_AVERAGE completed hours
@@ -1841,8 +1860,6 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       }
     }
 
-    float remainingFuelGallons = tankSizeGallons - (tankConsumption * ML_TO_GALLON);
-    float rollingRuntimeHours = (remainingFuelGallons / rollingAvgGPH);
     if (validHours > 0) {
       recentAvgGPH /= validHours; // Average GPH over valid hours
       if (tankSizeGallons > 0 && recentAvgGPH > 0) {
@@ -1852,23 +1869,14 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       // Fallback to currentGPH if no hourly data
       remainingRuntimeHours = remainingFuelGallons / currentGPH;
     }
+  }
+  
+  // JSON event updates 2s
+  static unsigned long lastJEvent = 0;
+  if ((unsigned long)(millis() - lastJEvent) >= 2000) { // Overflow-safe
+    lastJEvent = millis();
 
-    String voltageWarning = "";
-    if ((heaterStateNum >= 0 && heaterStateNum <= 4) && supplyVoltage <= 11.0) {
-      voltageWarning = "Start volt sag";
-    } else if (supplyVoltage <= 10.2 && controlEnable == 1 && heaterStateNum == 5) {
-      uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
-      sendData(data1, 24);
-      cshut = 1;
-      controlEnable = 0;
-      voltageWarning = "Low voltage!";
-      Serial.println("Heater turned off due to low voltage: " + String(supplyVoltage, 1) + "V");
-      message = "Heater turned off due to low voltage.";
-      flashLength = 1000000;
-      digitalWrite(LED_BUILTIN, HIGH);
-    }
-
-    // History update every 5min
+        // History update every 5min
     static unsigned long lastHistUpdate = 0;
     static bool firstHistUpdate = true;  // Flag for first run
     if ((firstHistUpdate || (unsigned long)(millis() - lastHistUpdate) >= 300000) && eventen) { // Overflow-safe
@@ -1876,7 +1884,7 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       if (epochTime < 1710000000) {
         Serial.println("NTP not synced, epoch: " + String(epochTime));
       }
-      tempHistory[tempIndex] = currentTemperature;
+      tempHistory[tempIndex] = (currentTemperature == -200.0f) ? 0 : currentTemperature;
       tempTimestamps[tempIndex] = epochTime;
       tempIndex = (tempIndex + 1) % TEMP_HISTORY_SIZE;
       outsideTempHistory[outsideTempIndex] = round(outsideTempF); // Store in Fahrenheit
@@ -1902,9 +1910,48 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
       firstHistUpdate = false;  // Disable first-run trigger after this
     }
 
+    String voltageWarning = "";
+    if ((heaterStateNum > 0 && heaterStateNum <= 4) && supplyVoltage <= 11.0) {
+      voltageWarning = "Start volt sag";
+    } else if (supplyVoltage <= 10.2 && controlEnable == 1 && heaterStateNum == 5) {
+      uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
+      sendData(data1, 24);
+      cshut = 1;
+      controlEnable = 0;
+      voltageWarning = "Low voltage!";
+      Serial.println("Heater turned off due to low voltage: " + String(supplyVoltage, 1) + "V");
+      message = "Heater turned off due to low voltage.";
+      flashLength = 1000000;
+      digitalWrite(LED_BUILTIN, HIGH);
+    }
+
+    static unsigned long lastSave = 0;
+    if ((unsigned long)(millis() - lastSave) >= 30000) { // Overflow-safe
+      preferences.putFloat("fuelConsumption", fuelConsumption);
+      preferences.putFloat("tankRuntime", tankRuntime);
+      preferences.putFloat("tankConsumption", tankConsumption);
+      preferences.putFloat("avgGallonPerHour", avgGallonPerHour);
+      preferences.putULong("totalRuntime", totalRuntime);
+      preferences.putFloat("glowPlugHours", glowPlugHours);
+      preferences.putBool("frostMode", frostModeEnabled);
+      preferences.putULong("runtime", heaterRunTime);
+      preferences.putFloat("walltemptrigger", walltemptrigger);
+      preferences.putFloat("totalTankTime", totalTankTime);
+      preferences.putFloat("rollingAvgGPH", rollingAvgGPH);
+      if (ductFanManualControl) {
+        preferences.putInt("manualDuctSpeed", manualDuctFanSpeed);
+        preferences.putFloat("manualDuctVoltage", manualDuctFanVoltage);
+      }
+      if (wallFanManualControl) {
+        preferences.putInt("manualWallSpeed", manualWallFanSpeed);
+        preferences.putFloat("manualWallVoltage", manualWallFanVoltage);
+      }
+      lastSave = millis();
+    }
+    
     DynamicJsonDocument jsonDoc(10240);
     jsonDoc["bleName"] = currentBLEName;
-    jsonDoc["currentTemp"] = round(celsiusToFahrenheit(currentTemperature));
+    jsonDoc["currentTemp"] = (currentTemperature == -200.0f) ? 0 : round(celsiusToFahrenheit(currentTemperature));
     jsonDoc["setTemp"] = round(celsiusToFahrenheit(setTemperature));
     jsonDoc["targettemp"] = round(celsiusToFahrenheit(targetSetTemperature));
     jsonDoc["tempadjusting"] = temperatureChangeByWeb;
@@ -1936,7 +1983,7 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
     jsonDoc["glowPlugCurrent_Amps"] = glowPlugCurrent_Amps;
     jsonDoc["pumpHz"] = pumpHz;
     jsonDoc["controlEnable"] = controlEnable;
-    jsonDoc["walltemp"] = round(celsiusToFahrenheit(walltemp));
+    jsonDoc["walltemp"] = (walltemp < -100.0f) ? 0 : round(celsiusToFahrenheit(walltemp));
     jsonDoc["walltemptrigger"] = (walltemptrigger * 9.0 / 5.0);
     jsonDoc["tempwarn"] = tempwarn;
     jsonDoc["ductfan"] = ductfan;
@@ -1965,6 +2012,8 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
     jsonDoc["outsideHumidity"] = isnan(outsideHumidity) ? JsonVariant() : outsideHumidity; // Add humidity
     jsonDoc["zipcode"] = ZIP_CODE;
     jsonDoc["saveError"] = saveError; // Add error message to JSON
+    jsonDoc["serialinterruptcount"] = serialinterruptcount;
+
 
     String jsonString;
     serializeJson(jsonDoc, jsonString);
@@ -1977,30 +2026,6 @@ if ((unsigned long)(millis() - lastSensorRead) >= READ_INTERVAL) { // Overflow-s
     if (eventen) {
       String eventString = "event: heater_update\ndata: " + escapedJsonString + "\n\n";
       events.send(eventString.c_str());
-    }
-
-    static unsigned long lastSave = 0;
-    if ((unsigned long)(millis() - lastSave) >= 30000) { // Overflow-safe
-      preferences.putFloat("fuelConsumption", fuelConsumption);
-      preferences.putFloat("tankRuntime", tankRuntime);
-      preferences.putFloat("tankConsumption", tankConsumption);
-      preferences.putFloat("avgGallonPerHour", avgGallonPerHour);
-      preferences.putULong("totalRuntime", totalRuntime);
-      preferences.putFloat("glowPlugHours", glowPlugHours);
-      preferences.putBool("frostMode", frostModeEnabled);
-      preferences.putULong("runtime", heaterRunTime);
-      preferences.putFloat("walltemptrigger", walltemptrigger);
-      preferences.putFloat("totalTankTime", totalTankTime);
-      preferences.putFloat("rollingAvgGPH", rollingAvgGPH);
-      if (ductFanManualControl) {
-        preferences.putInt("manualDuctSpeed", manualDuctFanSpeed);
-        preferences.putFloat("manualDuctVoltage", manualDuctFanVoltage);
-      }
-      if (wallFanManualControl) {
-        preferences.putInt("manualWallSpeed", manualWallFanSpeed);
-        preferences.putFloat("manualWallVoltage", manualWallFanVoltage);
-      }
-      lastSave = millis();
     }
   }
 
