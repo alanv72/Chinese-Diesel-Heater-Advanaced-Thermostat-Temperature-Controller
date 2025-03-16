@@ -194,7 +194,7 @@ unsigned long flasherLastTime;
 unsigned long rxLastTime;
 unsigned long writerLastTime;
 String heaterState[] = { "Off/Stand-by", "Starting", "Pre-Heat", "Retry Start", "Ramping Up", "Heating", "Stop Received", "Shutting Down", "Cooldown"};
-int heaterStateNum = 0;
+int heaterStateNum = -1;
 const char* heaterError[] = {
   "No Error",                     // 0 - No Error (0 - 1 = -1, but we treat 0 as no error)
   "Running w/o Error",        // 1 - No Error, but started (1 - 1 = 0)
@@ -209,7 +209,7 @@ const char* heaterError[] = {
   "Temp sensor failed",    // 10 - Temperature sensor failure (10 - 1 = 9)
   "Multiple Starts Failed. Check Fuel." // Fuel failure. Empty or restricted. (11 - 1 = 10)
 };
-int heaterErrorNum = 0;
+int heaterErrorNum = -1;
 int heaterinternalTemp = 0;
 unsigned long lastSendTime = 0;
 int tempwarn = 0; // 0 = no warning, 1 = warning (>110°F), 2 = critical (>120°F)
@@ -1885,7 +1885,7 @@ void loop() {
         // History update every 5min
     static unsigned long lastHistUpdate = 0;
     static bool firstHistUpdate = true;  // Flag for first run
-    if ((firstHistUpdate || (unsigned long)(millis() - lastHistUpdate) >= 300000) && eventen) { // Overflow-safe
+    if ((firstHistUpdate || (unsigned long)(millis() - lastHistUpdate) >= 300000) && eventen && serialActive) { // Overflow-safe
       lastHistUpdate = millis();
       if (epochTime < 1710000000) {
         Serial.println("NTP not synced, epoch: " + String(epochTime));
@@ -1961,8 +1961,8 @@ void loop() {
     jsonDoc["setTemp"] = round(celsiusToFahrenheit(setTemperature));
     jsonDoc["targettemp"] = round(celsiusToFahrenheit(targetSetTemperature));
     jsonDoc["tempadjusting"] = temperatureChangeByWeb;
-    jsonDoc["state"] = heaterState[heaterStateNum];
-    jsonDoc["error"] = heaterError[heaterErrorNum];
+    jsonDoc["state"] = (heaterStateNum < 0) ? "Est Coms" : heaterState[heaterStateNum];
+    jsonDoc["error"] = (heaterErrorNum < 0) ? "Est Coms" : heaterError[heaterErrorNum];
     jsonDoc["statenum"] = heaterStateNum;
     jsonDoc["errornum"] = heaterErrorNum;
     jsonDoc["heaterHourMeter"] = heaterRunTime / 3600.0;
