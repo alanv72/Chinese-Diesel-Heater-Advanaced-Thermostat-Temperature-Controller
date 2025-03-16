@@ -542,6 +542,10 @@
   #setBLENameButton:hover {
     background-color: #e67e22;
   }
+  #outdoor:hover {
+    text-decoration: underline;
+    background-color: rgba(255, 255, 255, 0.1); /* Slight white tint on hover */
+  }
 </style>
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -586,7 +590,7 @@
   <div class="status-item"><span class="label">Up:</span><span id="uptime" class="value"><span></span></span></div>
   <div class="status-item"><span class="label">Time:</span><span id="currentTime" class="value"><span></span></span></div>
   <div class="status-item"><span class="label">Date:</span><span id="currentDate" class="value"><span></span></span></div>
-  <div class="status-item"><span class="label">Outdoor:</span><span id="outdoor" class="value"><span></span></span></div>
+  <div class="status-item" id="outdoorLabel"><span class="label">Outdoor:</span><span id="outdoor" class="value"><span></span></span></div>
   <div class="status-item"><span class="label"></span><span id="voltageWarning" class="value"></span></div>
 </div>
   <div id="heatererror">

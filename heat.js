@@ -493,6 +493,17 @@ document.addEventListener('DOMContentLoaded', function() {
   let serverZipCode = "64856"; // Default until we get the first event
   let hasGeolocationFailed = false;
 
+  // Make only the Outdoor div clickable for Bing Weather forecast
+  const outdoorDiv = document.getElementById('outdoor');
+  if (outdoorDiv) {
+    outdoorDiv.style.cursor = 'pointer';
+    outdoorDiv.addEventListener('click', function() {
+      const weatherUrl = `https://www.bing.com/search?q=weather+${serverZipCode}`;
+      console.log('Opening Bing Weather URL:', weatherUrl); // Debug
+      window.open(weatherUrl, '_blank');
+    });
+  }
+
   // Add BLE name input event listeners
   const bleNameInput = document.getElementById('bleNameInput');
   if (bleNameInput) {
