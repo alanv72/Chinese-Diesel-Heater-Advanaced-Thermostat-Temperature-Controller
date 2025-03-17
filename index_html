@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
+<style>
+  body {
+    margin-top: 120px; /* Increased to account for topControls and status banner */
+    background: #2c3e50 url('/fireside.jpg') no-repeat center center fixed; 
+    background-size: cover;
+    color: #f39c12; 
+    font-family: 'Arial', sans-serif;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  }
+  h1, h2 {
+    color: #e67e22;
+    text-align: center;
+  }
+  .slider {
+    -webkit-appearance: none;
+    width: 80%;
+    height: 25px;
+    background: linear-gradient(to right, yellow, red);
+    outline: none;
+    opacity: 0.7;
+    -webkit-transition: .2s;
+    transition: opacity .2s;
+    position: relative;
+  }
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 25px;
+    height: 25px;
+    background: #333;
+    cursor: pointer;
+  }
+  .slider::-moz-range-thumb {
+    width: 25px;
+    height: 25px;
+    background: #e74c3c;
+    cursor: pointer;
+  }
+  .floating-label {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    pointer-events: none;
+    display: none;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    z-index: 1000;
+  }
+  button, input[type="checkbox"] + label {
+    background-color: #d35400;
+    border: none;
+    color: white;
+    padding: 10px 24px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+    margin: 4px 2px;
+    cursor: pointer;
+    border-radius: 12px;
+    transition: background-color 0.3s;
+  }
+  button:hover, input[type="checkbox"] + label:hover {
+    background-color: #e67e22;
+  }
+
+  /* Container for controls above the status banner */
+  #topControls {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 1001;
+    display: flex;
+    justify-content: center; /* Center all items */
+    align-items: center;
+    padding: 5px 5px;
+    height: 33px; /* Fixed height for consistency */
+  }
+
+  /* Wrapper for thermostat and start heater button to keep them together */
+  #controlGroup {
+    display: flex;
+    align-items: center;
+    gap: 10px; /* Space between thermostat toggle and start heater button */
+  }
+
+  /* Adjust status banner to sit below the top controls */
+  #statusBanner {
+    position: fixed;
+    top: 40px; /* Matches the height of topControls */
+    left: 90px; /* Space for the fuel gauge */
+    width: calc(100% - 100px); /* Adjust width to account for gauge */
+    background: rgba(0, 0, 0, 0.7);
+    color: #f39c12;
+    font-size: 12px;
+    padding: 5px 0;
+    text-align: center;
+    z-index: 1000;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .status-item {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    margin: 0 5px;
+    min-height: 16px;
+  }
+  .status-item .label {
+    font-weight: bold;
+    margin-right: 0px;
+  }
+  .status-item .value {
+    margin-left: 2px;
+  }
+  @media screen and (max-width: 768px) {
+    #statusBanner {
+      font-size: 10px;
+      padding: 3px 0;
+    }
+    .status-item {
+      margin: 0 2px;
+      min-height: 14px;
+    }
+  }
+  @media screen and (max-width: 480px) {
+    #statusBanner {
+      font-size: 10px;
+      padding: 2px 0;
+      flex-direction: row;
+      justify-content: center;
+      align-items: center;
+      gap: 2px;
+      left: 90px; /* Keep space for gauge */
+      width: calc(100% - 100px);
+    }
+    .status-item {
+      margin: 0 2px;
+      min-height: 14px;
+      font-size: 10px;
+    }
+    .status-item:nth-child(n+10) {
+      font-size: 10px;
+      min-height: 14px;
+    }
+  }
+  @media screen and (max-width: 320px) {
+    #statusBanner {
+      font-size: 8px;
+      padding: 1px 0;
+      gap: 1px;
+    }
+    .status-item {
+      margin: 0 1px;
+      min-height: 12px;
+      font-size: 8px;
+    }
+  }
+
+  #currentSetTemp {
+    position: relative;
+    color: #f1c40f;
+    font-size: 1.2em;
+    text-align: center;
+    margin-top: 20px;
+  }
+  .file-area {
+    background: rgba(0, 0, 0, 0.5);
+    padding: 20px;
+    border-radius: 10px;
+    margin: 20px auto;
+    max-width: 500px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th, td {
+    border: 1px solid #f39c12;
+    padding: 8px;
+    text-align: left;
+    background-color: darkred;
+  }
+  th {
+    background-color: #d35400;
+  }
+  #prime {
+    display: none;
+  }
+
+  /* Fuel Gauge Styling */
+  .gauge {
+    width: 100%;
+    max-width: 80px;
+    font-family: "Roboto", sans-serif;
+    font-size: 12px;
+    color: #333;
+    z-index: 1000; /* Match z-index of status banner */
+    top: 40px; /* Align with the top of the status banner */
+    left: 5px; /* Small padding from the left edge */
+    margin: 0;
+  }
+  .gauge__body {
+    width: 100%;
+    height: 0;
+    padding-bottom: 50%;
+    background: transparent;
+    position: relative;
+    border-top-left-radius: 100% 200%;
+    border-top-right-radius: 100% 200%;
+    overflow: hidden;
+  }
+  .gauge__fill {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: inherit;
+    height: 100%;
+    background: #009578;
+    transform-origin: center top;
+    transform: rotate(0.25turn);
+    transition: transform 0.2s ease-out;
+  }
+  .gauge__cover {
+    width: 75%;
+    height: 150%;
+    background: #ccc;
+    border-radius: 50%;
+    position: absolute;
+    top: 25%;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 25%;
+    box-sizing: border-box;
+  }
+
+  /* Thermostat Control Styling */
+  #thermostatControl {
+    display: inline-block;
+  }
+  #thermostatControl input[type="checkbox"] {
+    display: none;
+  }
+  #thermostatControl label {
+    padding: 5px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    border-radius: 4px;
+  }
+  #thermostatControl input[type="checkbox"]:checked + label {
+    background-color: #e67e22;
+  }
+  #thermostatControl label.active {
+    background-color: #e67e22;
+  }
+  #frostModeControl input[type="checkbox"] {
+    display: none;
+  }
+  #frostModeControl input[type="checkbox"]:checked + label {
+    background-color: #e67e22;
+  }
+  #frostModeControl label.active {
+    background-color: #e67e22;
+    width: 100%;
+  }
+  button#heateron {
+    padding: 5px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    border-radius: 4px;
+  }
+  #shutdownHeater {
+    background-color: #d35400;
+    border: none;
+    color: white;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+    min-width: 50px;
+    min-height: 20px;
+  }
+  #shutdownHeater:hover {
+    background-color: #e67e22;
+  }
+  #walltempbut {
+    background-color: #d35400;
+    border: none;
+    color: white;
+    padding: 5px 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+    min-width: 50px;
+    min-height: 20px;
+  }
+  #setTankButton {
+    background-color: #d35400;
+    border: none;
+    color: white;
+    padding: 5px 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+    min-width: 50px;
+    min-height: 20px;
+  }
+  #setZipButton {
+    background-color: #d35400;
+    border: none;
+    color: white;
+    padding: 5px 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+    min-width: 50px;
+    min-height: 20px;
+  }
+  #heatererror {
+    position: fixed;
+    top: 15%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 200px;
+    background-color: black;
+    padding: 10px 20px;
+    border-radius: 5px;
+    display: none;
+    text-align: center;
+    z-index: 1001;
+  }
+  #heatererrortxt {
+    display: inline-block;
+    color: red;
+    font-weight: bold;
+    animation: blink 1s infinite;
+  }
+  @keyframes blink {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+  }
+  #message {
+    position: fixed;
+    bottom: .01%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 300px;
+    background-color: black;
+    padding: 5px 10px;
+    border-radius: 5px;
+    text-align: center;
+    display: none;
+    z-index: 1001;
+  }
+  .fan-section {
+    margin-top: 10px;
+    text-align: center;
+  }
+  .fan-controls-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .fan-control-group {
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    margin-bottom: 0;
+  }
+  .fan-control {
+    position: relative;
+    width: 132px;
+    height: 110px;
+    margin: 0;
+    z-index: 1;
+  }
+  .fan-control canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10;
+  }
+  .gauge-value {
+    position: absolute;
+    bottom: 20px;
+    width: 100%;
+    text-align: center;
+    font-size: 16px;
+    color: #FFA500;
+    z-index: 5;
+  }
+  .fan-label {
+    position: absolute;
+    bottom: 0px;
+    width: 100%;
+    text-align: center;
+    font-size: 16px;
+    color: #FFA500;
+    z-index: 5;
+  }
+  .fan-label-and-button {
+    position: absolute;
+    bottom: 11px;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    gap: 5px;
+    z-index: 5;
+  }
+  .fanbut {
+    z-index: 11;
+  }
+  .fan-toggle {
+    padding: 4px 6px;
+    font-size: 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: #FFA500;
+    color: #fff;
+    transition: background-color 0.3s;
+    z-index: 1;
+  }
+  .fan-toggle.active {
+    background-color: #FFA500;
+  }
+  .fan-toggle:not(.active) {
+    background-color: #FF8C00;
+  }
+  .fan-toggle:hover {
+    background-color: #FF4500;
+  }
+  #currentSetTemp {
+    font-size: 30px;
+    font-weight: bold;
+  }
+  #currentSetTemp.adjusting::before {
+    content: "Adjusting to: ";
+    animation: blink 1s infinite;
+  }
+  #currentSetTemp:not(.adjusting)::before {
+    content: "";
+  }
+  @keyframes blink {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+  }
+  .delete-btn {
+    background-color: #c0392b;
+    border: none;
+    color: white;
+    padding: 5px 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 12px;
+    margin: 2px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+  }
+  .delete-btn:hover {
+    background-color: #e74c3c;
+  }
+  #delete {
+    text-align: center;
+  }
+  #wattchart {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: darkred;
+    padding: 3px 0px 3px 0px;
+  }
+  #fuelchart {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: darkred;
+    padding: 3px 0px 3px 0px;
+  }
+  #manualZipInput {
+    background: darkred;
+  }
+  /* Add to your existing <style> block */
+  .ble-name {
+    margin-top: 10px;
+    background: lightyellow;
+  }
+  #bleNameInput {
+    color: grey;
+    font-size:14px;
+    padding: 5px;
+    border: none;
+    border-radius: 4px;
+    margin-right: 5px;
+  }
+  #setBLENameButton {
+    background-color: #d35400;
+    border: none;
+    color: white;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+  }
+  #setBLENameButton:hover {
+    background-color: #e67e22;
+  }
+  #outdoor:hover {
+    text-decoration: underline;
+    background-color: rgba(255, 255, 255, 0.1); /* Slight white tint on hover */
+  }
+</style>
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="manifest" href="/site.webmanifest">
+</head>
+<body>
+  <!-- Top Controls -->
+  <div id="topControls">
+    <!-- Fuel Gauge -->
+  <div class="gauge">
+    <div class="gauge__body">
+      <div class="gauge__fill" id="fuelGaugeFill"></div>
+      <div class="gauge__cover" id="fuelGallonsLeft">0 Gal</div>
+    </div>
+  </div>
+    <div id="controlGroup">
+      <div id="thermostatControl">
+        <input type="checkbox" id="thermostatEnable" onchange="toggleThermostat(this.checked)">
+        <label for="thermostatEnable" id="thermostatLabel">Thermostat Off</label>
+      </div>
+      <button id="heateron" onclick="turnHeaterOn()">Start Heater</button>
+      <button id="shutdownHeater" onclick="shutdownHeater()">Stop Heater</button>
+    </div>
+  </div>
+
+<div id="statusBanner" style="position: fixed; left: 0; width: 100%; background: rgba(0, 0, 0, 0.7); color: #f39c12; font-size: 12px; padding: 5px 0; text-align: center; z-index: 1000; display: flex; flex-wrap: wrap; justify-content: center; align-items: center;">
+  <div class="status-item"><span class="label">State:</span><span id="heaterState" class="value">Unknown</span></div>
+  <div class="status-item"><span class="label">Temp:</span><span id="currentTemp" class="value">0</span></div>
+  <div class="status-item"><span class="label">Wall Temp:</span><span id="walltemp" class="value">0</span></div>
+  <div class="status-item"><span class="label">Int Temp:</span><span id="heaterInternalTemp" class="value">0</span></div>
+  <div class="status-item"><span class="label">Fan:</span><span id="fanSpeed" class="value">0</span></div>
+  <div class="status-item"><span class="label">Est Run:</span><span id="rollingRuntimeHours" class="value">0</span></div>
+  <div class="status-item"><span class="label">Duct:</span><span id="ductfan" class="value"></span></div>
+  <div class="status-item"><span class="label">Wall:</span><span id="wallfan" class="value"></span></div>
+  <div class="status-item"><span class="label">Volt:</span><span id="supplyVoltage" class="value">0.0</span></div>
+  <div class="status-item"><span class="label">Pump:</span><span id="pumpHz" class="value">0</span> Hz</div>
+  <div class="status-item"><span class="label">Glow:</span><span id="glowPlugCurrent" class="value">0</span> A</div>
+  <div class="status-item"><span class="label">Avg:</span><span id="rollingAvgGPH" class="value">0.00</span></div>
+  <div class="status-item"><span class="label">Meter:</span><span id="runtime" class="value">0</span></div>
+  <div class="status-item"><span class="label">Glow Hrs:</span><span id="glowPlugHours" class="value">0.00</span></div>
+  <div class="status-item"><span class="label">Up:</span><span id="uptime" class="value"><span></span></span></div>
+  <div class="status-item"><span class="label">Time:</span><span id="currentTime" class="value"><span></span></span></div>
+  <div class="status-item"><span class="label">Date:</span><span id="currentDate" class="value"><span></span></span></div>
+  <div class="status-item" id="outdoorLabel"><span class="label">Outdoor:</span><span id="outdoor" class="value"><span></span></span></div>
+  <div class="status-item"><span class="label"></span><span id="voltageWarning" class="value"></span></div>
+</div>
+  <div id="heatererror">
+    <div id="tempWarn" style="display:none;"></div>
+      <span id="heatererrortxt"></span>
+  </div>
+  <h2>Heater Controls</h2>
+  <div style="text-align: center;"></div>
+  <div id="message"></div>
+<div id="therm">
+  <div id="currentSetTemp"><span id="setTemperatureDisplay">60</span>°F<br>
+    <input type="range" min="46" max="95" value="60" class="slider" id="tempSlider">
+  </div>
+  
+  <div style="text-align: center;">
+    <button onclick="setTemp(46, this)">Frost</button>
+    <button onclick="setTemp(61, this)">Eco</button>
+    <button onclick="setTemp(66, this)">Sleep</button>
+    <button onclick="setTemp(72, this)">Comfort</button>
+  </div>
+  <div style="text-align: center;" id="prime">
+    <button id="primeStart" onclick="primePump('start')">Start Pump Prime</button>
+    <button id="primeStop" onclick="primePump('stop')">Stop Pump Prime</button>
+  </div>
+  <div id="frostModeControl" style="text-align: center;">
+    <input type="checkbox" id="frostModeEnable" onchange="toggleFrostMode(this.checked)">
+    <label for="frostModeEnable" id="frostModeLabel">Frost Mode</label>
+  </div>
+</div>
+<div style="text-align: center;" class="walltemp">
+<div class="fan-section">
+  <h3 style="color: #FFA500; margin-bottom: 5px;">Fan Control</h3>
+  <p id="fanStatus" style="display: none; color: #FF0000; font-size: 16px; margin-bottom: 5px;">Fans disabled due to low voltage</p>
+  
+  <div class="fan-controls-container">
+    <div class="fan-control-group">
+    <div class="fanbut" id="fanbut"><button id="ductFanControlToggle" class="fan-toggle active" onclick="toggleFanControl('duct')">Auto</button></div>
+      <div class="fan-control" id="ductFanGaugeContainer">
+        <canvas id="ductFanGauge" width="132" height="110"></canvas>
+        <div id="ductFanGaugeValue" class="gauge-value">0%</div>
+        <div class="fan-label">Duct</div>
+      </div>
+    <div class="fanbut" id="fanbut"><button id="wallFanControlToggle" class="fan-toggle active" onclick="toggleFanControl('wall')">Auto</button></div>
+      <div class="fan-control" id="wallFanGaugeContainer">
+        <canvas id="wallFanGauge" width="132" height="110"></canvas>
+        <div id="wallFanGaugeValue" class="gauge-value">0%</div>
+        <div class="fan-label">Wall</div>
+      </div>
+    </div>
+  </div>
+</div>
+    <p>Wall Delta: <span id="currentWallTempTrigger">0</span>°F  
+    <input type="number" id="wallTempTriggerInput" min="-1" max="10" step="1" value="">
+    <button id="walltempbut" onclick="setWallTempTrigger()">Update</button>
+  </p>
+</div>
+  <div style="text-align: center;" class="tank">
+
+    <h2>Fuel Consumption</h2>
+    <p>Tank Used: <span id="tankFuel">0</span></p>
+    <p>Current Usage: <span id="currentUsage">0</span></p>
+    <p>Tank Avg: <span id="avgGPH">0.00</span></p>
+    <p>Tank Runtime: <span id="tankruntime">0.00</span></p>
+    <p>Lifetime: <span id="lifetimeFuel">0</span></p>
+    <button onclick="resetTank()">Reset Tank</button>
+    
+    <h2>Tank Management</h2>
+    <p>Current Tank Size: <span id="currentTankSize">0</span></p>
+    <input type="number" id="tankSizeInput" min="0" step="0.1" maxlength=4 placeholder="Size in Gal"><button id="setTankButton"onclick="setTankSize()">Set Tank Size</button>
+    
+  </div>
+  <canvas id="tempChart" width="400" height="200"></canvas>
+  <div style="text-align: center;" class="weather">
+    <div id="manualZipInput" style="display: none;">
+      <p id="zipErrorMessage" style="color: red; display: none; background: black;"></p>
+      Weather Zipcode: <span id="currentZipCode"></span>
+      <input type="text" id="zipCodeInput" minlength="5" maxlength="5" placeholder="Enter 5-digit ZIP">
+      <button id="setZipButton">Set ZIP Code</button> <!-- No onclick -->
+    </div>
+  </div>
+  <div id="fuelchart"><br>
+  <div class="data-box" id="totalGalLabel"><span>24HR Total: </span><span id="totalGal" class="value">Calculating...</span></div>
+  </div>
+  <canvas id="hourlyFuelChart" width="400" height="150"></canvas>
+  <div id="wattchart"><br>
+  <label>24HR Avg: <span id="avgWattHours24h">0.00 W/Hr</span>&nbsp;&nbsp;|&nbsp;&nbsp;<span>24HR Total: </span><span id="totalWh" class="value">Calculating...</span></label>
+  </div>
+  <canvas id="wattHourChart" width="400" height="150"></canvas>
+  <canvas id="voltageChart" width="400" height="150"></canvas>
+  <div class="file-area">
+    <h2>File Upload</h2>
+    <form method="POST" action="/upload" enctype="multipart/form-data">
+      <input type="file" name="data"/>
+      <input type="submit" name="upload" value="Upload" title="Upload File">
+    </form>
+    <p>Please wait after clicking upload; there's no progress indicator. The page will refresh to show the uploaded file.</p>
+    <p>Files might not upload if too large or if the filename contains special characters.</p>
+    <p>Check serial output for upload progress.</p>
+  </div>
+
+  <div id="fileListing">
+    <h2>Files in SPIFFS:</h2>
+    <button id="listFilesBtn">List Files</button>
+    <table id="fileTable">
+      <thead>
+        <tr><th>Name</th><th>Size</th><th>Action</th></tr>
+      </thead>
+      <tbody id="fileListBody"></tbody>
+    </table>
+  </div>
+
+  <div style="text-align: center;" class="ble-name">
+    <span id="currentBLEName"></span>&nbsp;<input type="text" id="bleNameInput" maxlength="32" placeholder="Enter new name">
+    <button id="setBLENameButton" onclick="setBLEName()">Set Name</button>
+  </div>
+
+<script src="/chart.js"></script>
+<script src="/chartjs-adapter-date-fns.js"></script>
+<script src="/chartjs-adapter-date.js"></script>
+<script src="/heat.js"></script>
+<script src="/index.js"></script>
+</body>
+</html>
