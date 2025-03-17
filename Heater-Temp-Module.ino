@@ -1539,7 +1539,8 @@ void loop() {
     simulateButtonPress(increaseTempPin);
     simulateButtonPress(decreaseTempPin);
     pinMode(HEATER_PIN, INPUT);  // Set back to input
-
+    serialActive = true;
+    controlEnable = 1;
   }
 
   if (temperatureChangeByWeb && !serialActive) {
