@@ -1,3 +1,5 @@
+Added some error handling and frontend alerts. Disabled control when coms are down.
+
 Added rename fuciontality. Set default name to heater-therm.
 
 Some fixes to saving and loading historical data from spiffs. Updated layout of some buttons on the webinterface.
