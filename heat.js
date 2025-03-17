@@ -470,6 +470,23 @@ function filterDuplicates(values, timestamps) {
   };
 }
 
+function updateThermState(serialActive) {
+  var thermDiv = document.getElementById("therm");
+  if (thermDiv) {
+    if (!serialActive) {
+      // Grey out and disable interaction
+      thermDiv.style.opacity = "0.5"; // Reduce opacity for greyed-out effect
+      thermDiv.style.pointerEvents = "none"; // Disable all mouse/touch interactions
+      thermDiv.style.filter = "grayscale(100%)"; // Optional: fully grey out colors
+    } else {
+      // Restore normal state
+      thermDiv.style.opacity = "1"; // Full opacity
+      thermDiv.style.pointerEvents = "auto"; // Re-enable interactions
+      thermDiv.style.filter = "none"; // Remove grey filter
+    }
+  }
+}
+
 function deleteFile(filename) {
   if (confirm(`Are you sure you want to delete ${filename}?`)) {
     fetch('/deleteFile', {
@@ -1177,7 +1194,6 @@ var wattHourChart = new Chart(ctxWattHour, {
           if (tempAdjusting) {
             currentSetTemp.classList.add('adjusting');
             updateTempDisplay(data.targettemp !== undefined ? data.targettemp : (pendingSetTemp !== null ? pendingSetTemp : data.setTemp.toFixed(0)));
-            // Highlight based on targettemp during adjustment, if available
             if (data.targettemp !== undefined) {
               highlightQuickSetButton(data.targettemp);
             } else if (pendingSetTemp !== null && lastClickedButton) {
@@ -1189,8 +1205,10 @@ var wattHourChart = new Chart(ctxWattHour, {
             currentSetTemp.classList.remove('adjusting');
             pendingSetTemp = null;
             lastClickedButton = null;
-            updateTempDisplay(data.setTemp.toFixed(0));
-            highlightQuickSetButton(data.setTemp); // Highlight based on setTemp post-adjustment
+            if (!isSliderActive) { // Only update display if slider isn’t active
+              updateTempDisplay(data.setTemp.toFixed(0));
+              highlightQuickSetButton(data.setTemp);
+            }
           }
 
           // Create Date object from UTC epoch time (assuming epochtime is in seconds)
@@ -1389,7 +1407,6 @@ var wattHourChart = new Chart(ctxWattHour, {
             document.getElementById("totalWh").textContent = totalWattHours.toFixed(2) + " W";
           }
 
-
           var thermostatLabel = document.getElementById("thermostatLabel");
           thermostatLabel.textContent = data.controlEnable ? "Thermostat On" : "Thermostat Off";
           thermostatLabel.classList.toggle("active", data.controlEnable);
@@ -1432,8 +1449,18 @@ var wattHourChart = new Chart(ctxWattHour, {
           }
           document.getElementById('outdoor').innerText = outdoorValue;
 
-          // Handle shutdown state
+
+          if (data.serialActive !== undefined) {
+            updateThermState(data.serialActive);
+            serialActive = data.serialActive;
+          }
+
+          if (data.serialEstablished !== undefined) {
+          serialEstablished = data.serialEstablished;
+          }
+
           var messageDiv = document.getElementById("message");
+          // Handle shutdown state
           if (isShuttingDown && data.statenum === 0) {
             messageDiv.textContent = "Heater was shut down.";
             messageDiv.style.display = "inline-block";
@@ -1445,6 +1472,24 @@ var wattHourChart = new Chart(ctxWattHour, {
           } else if (!isShuttingDown) {
             messageDiv.textContent = "";
             messageDiv.style.display = "none";
+          }
+          //Handle serial comms messaging
+          if (messageDiv) {
+            if (serialEstablished === true && serialActive === false) {
+              messageDiv.textContent = "Heater communication interrupted...";
+              messageDiv.style.display = "inline-block";
+            } else if (serialEstablished === false) {
+              messageDiv.textContent = "Establishing Heater Communications...";
+              messageDiv.style.display = "inline-block";
+            } else {
+              // Only clear if it’s showing one of our specific messages
+              if (messageDiv.textContent === "Heater communication interrupted..." || 
+                  messageDiv.textContent === "Establishing Heater Communications...") {
+                messageDiv.textContent = "";
+                messageDiv.style.display = "none";
+              }
+              // Leave other messages (e.g., "Heater was shut down.") intact
+            }
           }
 
           // Update hourly fuel chart

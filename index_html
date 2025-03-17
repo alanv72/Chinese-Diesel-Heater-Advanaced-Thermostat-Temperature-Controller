@@ -600,6 +600,7 @@
   <h2>Heater Controls</h2>
   <div style="text-align: center;"></div>
   <div id="message"></div>
+<div id="therm">
   <div id="currentSetTemp"><span id="setTemperatureDisplay">60</span>°F<br>
     <input type="range" min="46" max="95" value="60" class="slider" id="tempSlider">
   </div>
@@ -618,6 +619,7 @@
     <input type="checkbox" id="frostModeEnable" onchange="toggleFrostMode(this.checked)">
     <label for="frostModeEnable" id="frostModeLabel">Frost Mode</label>
   </div>
+</div>
 <div style="text-align: center;" class="walltemp">
 <div class="fan-section">
   <h3 style="color: #FFA500; margin-bottom: 5px;">Fan Control</h3>

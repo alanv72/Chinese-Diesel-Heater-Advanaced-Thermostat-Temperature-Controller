@@ -40,8 +40,8 @@ const unsigned long adjustmentInterval = 200;  // interval between adjustments
 
 // Voltage thresholds and targets
 const float NOMINAL_VOLTAGE = 13.5; // Fully charged battery baseline
-const float MIN_SUPPLY_VOLTAGE = 11.0; // Minimum supply voltage before fans shut off
-const float REC_SUPPLY_VOLTAGE = 11.5; // Recovery supply voltage once the battery charged to 11.5v
+const float MIN_SUPPLY_VOLTAGE = 10.5; // Minimum supply voltage before fans shut off
+const float REC_SUPPLY_VOLTAGE = 11.0; // Recovery supply voltage once the battery charged to 11.5v
 const float MAX_SUPPLY_VOLTAGE = 14.3; // Maximum supply voltage while charging
 //const float MOSFET_DROP = 0.3;      // IRL540N voltage drop at ~3A load
 const float MIN_FAN_VOLTAGE = 10.5;  // Minimum fan voltage for "Low"
@@ -141,6 +141,7 @@ int fanSpeed = 0;                // Fan speed in RPM
 float supplyVoltage = 0.0;       // Supply voltage in volts
 bool frostModeEnabled = false;
 float glowPlugHours = 0.0;  // Hours of glow plug operation
+int glowPlugCurrent = 0;
 float glowPlugCurrent_Amps = 0.0;
 bool voltagegood = true;
 bool cshut = 0;
@@ -210,7 +211,7 @@ const char* heaterError[] = {
   "Multiple Starts Failed. Check Fuel." // Fuel failure. Empty or restricted. (11 - 1 = 10)
 };
 int heaterErrorNum = -1;
-int heaterinternalTemp = 0;
+int heaterinternalTemp = -200;
 unsigned long lastSendTime = 0;
 int tempwarn = 0; // 0 = no warning, 1 = warning (>110°F), 2 = critical (>120°F)
 
@@ -283,6 +284,7 @@ float calculateDuctFanAmps(float voltage) {
 }
 
 // Function to calculate wall fan amps based on voltage
+// This is for 4" 120mm server fan strongest 
 float calculateWallFanAmps(float voltage) {
   if (voltage <= 0) return 0.0; // Invalid input
   if (voltage <= 6.0) {
@@ -295,6 +297,23 @@ float calculateWallFanAmps(float voltage) {
     return 1.0 + slope * (voltage - 9.0); // 9V and beyond
   }
 }
+// this is for white 240CFM inline fan
+// Function to calculate wall fan amps based on voltage
+// float calculateWallFanAmps(float voltage) {
+//     if (voltage <= 0) return 0.0; // Invalid input
+    
+//     if (voltage <= 6.0) {
+//         return (voltage / 6.0) * 0.6; // 0V to 6V: 0A to 0.6A
+//     } 
+//     else if (voltage <= 9.0) {
+//         float slope = (1.2 - 0.6) / (9.0 - 6.0); // 0.2 A/V
+//         return 0.6 + slope * (voltage - 6.0); // 6V to 9V
+//     } 
+//     else {
+//         float slope = (3.5 - 1.2) / (12.0 - 9.0); // 0.76667 A/V
+//         return 1.2 + slope * (voltage - 9.0); // 9V and beyond
+//     }
+// }
 
 // Function to calculate fuel pump amps based on Hz
 float calculateFuelPumpAmps(float hz) {
@@ -1418,7 +1437,7 @@ void loop() {
     fanSpeed = (int(Data[30]) << 8) | int(Data[31]);
     supplyVoltage = ((int(Data[28]) << 8) | int(Data[29])) * 0.1;
     heaterinternalTemp = (int(Data[34]) << 8) | int(Data[35]);
-    int glowPlugCurrent = (int(Data[38]) << 8) | int(Data[39]);
+    glowPlugCurrent = (int(Data[38]) << 8) | int(Data[39]);
     glowPlugCurrent_Amps = glowPlugCurrent / 100.0;
     pumpHz = int(Data[40] * 0.1);
     heaterErrorNum = int(Data[27]);
@@ -1500,7 +1519,7 @@ void loop() {
         flashLength = 100;
         Serial.println("  Starting Heater");
       }
-      if (setTemperature <= (currentTemperature - 1) && (heaterStateNum >= 1 && heaterStateNum <= 5)) {
+      if (setTemperature <= (currentTemperature - 2) && (heaterStateNum >= 1 && heaterStateNum <= 5)) {
         uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
         sendData(data1, 24);
         cshut = 1;
@@ -1520,6 +1539,17 @@ void loop() {
   if (serialActive && (millis() - lastSerialUpdate > 15000)) {
     serialActive = false;
     controlEnable = 0;
+    heaterCommand = 0;
+    currentTemperature = 0;
+    setTemperature = 0;
+    heaterStateNum = -1;
+    fanSpeed = 0;
+    supplyVoltage = 0;
+    heaterinternalTemp = -200;
+    glowPlugCurrent = 0;
+    glowPlugCurrent_Amps = 0;
+    pumpHz = 0;
+    heaterErrorNum = -1;
     
     if (eventen) {
       DynamicJsonDocument jsonDoc(1024);
@@ -1535,12 +1565,10 @@ void loop() {
     Serial.println("Serial communication stopped " + String(serialinterruptcount) + "times.");
     //jiggle controller
     // Send button command to "wake-up" controller
-    pinMode(HEATER_PIN, INPUT_PULLDOWN);  //Pull comms down
+    //pinMode(HEATER_PIN, INPUT_PULLDOWN);  //Pull comms down
     simulateButtonPress(increaseTempPin);
     simulateButtonPress(decreaseTempPin);
-    pinMode(HEATER_PIN, INPUT);  // Set back to input
-    serialActive = true;
-    controlEnable = 1;
+    //pinMode(HEATER_PIN, INPUT);  // Set back to input
   }
 
   if (temperatureChangeByWeb && !serialActive) {
@@ -1746,7 +1774,7 @@ void loop() {
           int newWallFanPWM = 0;
           float newVoltage = 0.0;
 
-          if (voltagegood && heaterStateNum > 3 && heaterinternalTemp >= 38) {
+          if (voltagegood && heaterStateNum > 3 && heaterinternalTemp >= 38 && pumpHz != 1) {
               if (fanSpeed <= 2000) {
                   if (wallfandelay == 0) {
                       wallfandelay = millis() + 30000; // 30-second delay to turn off
