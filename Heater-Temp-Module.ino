@@ -1788,15 +1788,18 @@ void loop() {
                       newVoltage = lastWallVoltage; // Maintain last voltage during delay
                   }
               } else {
-                  // Linear interpolation: 2000 RPM (6.7V) to 5000 RPM (supplyVoltage)
-                  float minPWM = cachedFanLow * (6.7 / 10.5); // 6.7V
-                  float maxPWM = cachedFanHigh; // supplyVoltage
-                  float rpmRange = 4900.0 - 2000.0; // 3000 RPM span
+                  // Linear interpolation: 2000 RPM (6.7V) to 4900 RPM (10V)
+                  // Capping at 10v in auto mode to limit noise
+                  float minPWM = cachedFanLow * (6.7 / 10.5); // PWM at 6.7V
+                  float maxPWM = cachedFanHigh; // PWM at validatedSupply
+                  float rpmRange = 4900.0 - 2000.0; // 2900 RPM span
+                  float voltageRange = 10.0 - 6.7; // 3.3V span
                   float pwmRange = maxPWM - minPWM;
-                  float rpmFraction = (fanSpeed - 2000.0) / rpmRange; // 0.0 at 2000, 1.0 at 5000
-                  newWallFanPWM = (int)(minPWM + pwmRange * (fanSpeed < 4900 ? rpmFraction : 1.0));
+                  float rpmFraction = (fanSpeed - 2000.0) / rpmRange; // 0.0 at 2000 RPM, 1.0 at 4900 RPM
+                  if (fanSpeed >= 4900) rpmFraction = 1.0; // Cap at 4900 RPM
+                  newWallFanPWM = (int)(minPWM + pwmRange * rpmFraction);
+                  newVoltage = 6.7 + (rpmFraction * voltageRange); // Voltage scales from 6.7V to 10V
                   newWallFanPWM = constrain(newWallFanPWM, (int)minPWM, (int)maxPWM);
-                  newVoltage = 6.7 + (rpmFraction * (validatedSupply - 6.7)); // Voltage mapping
                   wallfandelay = 0; // No delay on speed changes
               }
           } else if (wallfan > 0) { // Condition false but fan was on
@@ -2791,7 +2794,7 @@ bool loadHistoryFromSPIFFS() {
       if (ampsArray[j].is<float>() && ampsTimeArray[j].is<unsigned long>()) {
         unsigned long ts = ampsTimeArray[j].as<unsigned long>();
         float value = ampsArray[j].as<float>();
-        if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_12_HOURS && !isnan(value)) {
+        if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_12_HOURS && value >= 0) {
           ampsMap[ts] = value;
           ampsCount = ampsMap.size();
         }
@@ -2815,7 +2818,7 @@ bool loadHistoryFromSPIFFS() {
       if (outsideTempArray[j].is<float>() && outsideTempTimeArray[j].is<unsigned long>()) {
         unsigned long ts = outsideTempTimeArray[j].as<unsigned long>();
         float value = outsideTempArray[j].as<float>();
-        if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_12_HOURS && !isnan(value)) {
+        if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_12_HOURS && value > -100) {
           outsideTempMap[ts] = value;
           outsideTempCount = outsideTempMap.size();
         }
@@ -2827,7 +2830,7 @@ bool loadHistoryFromSPIFFS() {
       if (hourlyFuelArray[j].is<float>() && hourlyTimeArray[j].is<unsigned long>()) {
         unsigned long ts = hourlyTimeArray[j].as<unsigned long>();
         float value = hourlyFuelArray[j].as<float>();
-        if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_24_HOURS && value > 0) {
+        if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_24_HOURS && value >= 0) {
           hourlyFuelMap[ts] = value;
           hourlyFuelCount = hourlyFuelMap.size();
         }
@@ -2839,7 +2842,7 @@ bool loadHistoryFromSPIFFS() {
       if (wattHourArray[j].is<float>() && wattTimeArray[j].is<unsigned long>()) {
         unsigned long ts = wattTimeArray[j].as<unsigned long>();
         float value = wattHourArray[j].as<float>();
-        if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_24_HOURS && value > 0) {
+        if (ts >= MIN_VALID_EPOCH && (currentTime - ts) <= LAST_24_HOURS && value >= 0) {
           wattHourMap[ts] = value;
           wattHourCount = wattHourMap.size();
         }
