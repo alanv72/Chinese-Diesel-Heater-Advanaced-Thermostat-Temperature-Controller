@@ -1987,7 +1987,7 @@ void loop() {
       lastSave = millis();
     }
     
-    DynamicJsonDocument jsonDoc(10240);
+    DynamicJsonDocument jsonDoc(24576);
     jsonDoc["bleName"] = currentBLEName;
     jsonDoc["currentTemp"] = (currentTemperature == -200.0f) ? 0 : round(celsiusToFahrenheit(currentTemperature));
     jsonDoc["setTemp"] = round(celsiusToFahrenheit(setTemperature));
@@ -2189,7 +2189,7 @@ void printMemoryStats() {
 }
 
 String serializeTempHistory() {
-  DynamicJsonDocument tempJsonDoc(4096); // Adjust size as necessary
+  DynamicJsonDocument tempJsonDoc(8192); // Adjust size as necessary
   JsonArray tempArray = tempJsonDoc.createNestedArray("tempHistory");
   JsonArray timeArray = tempJsonDoc.createNestedArray("timestamps");
 
@@ -2207,7 +2207,7 @@ String serializeTempHistory() {
 }
 
 String serializeVoltageHistory() {
-  DynamicJsonDocument voltageJsonDoc(4096); // Adjust size as necessary
+  DynamicJsonDocument voltageJsonDoc(8192); // Adjust size as necessary
   JsonArray voltageArray = voltageJsonDoc.createNestedArray("voltageHistory");
   JsonArray timeArray = voltageJsonDoc.createNestedArray("timestamps");
 
@@ -2225,7 +2225,7 @@ String serializeVoltageHistory() {
 }
 
 String serializePumpHzHistory() {
-  DynamicJsonDocument pumpHzJsonDoc(4096); // Adjust size as necessary
+  DynamicJsonDocument pumpHzJsonDoc(8192); // Adjust size as necessary
   JsonArray pumpHzArray = pumpHzJsonDoc.createNestedArray("pumpHzHistory");
   JsonArray timeArray = pumpHzJsonDoc.createNestedArray("timestamps");
 
@@ -2244,7 +2244,7 @@ String serializePumpHzHistory() {
 
 // New serialization function for outdoor temperature
 String serializeOutsideTempHistory() {
-  DynamicJsonDocument outsideTempJsonDoc(4096); // Adjust size as necessary
+  DynamicJsonDocument outsideTempJsonDoc(8192); // Adjust size as necessary
   JsonArray outsideTempArray = outsideTempJsonDoc.createNestedArray("outsideTempHistory");
   JsonArray timeArray = outsideTempJsonDoc.createNestedArray("timestamps");
 
@@ -2262,7 +2262,7 @@ String serializeOutsideTempHistory() {
 }
 
 String serializeHourlyFuelHistory() {
-  DynamicJsonDocument fuelJsonDoc(4096); // Adjust size as necessary
+  DynamicJsonDocument fuelJsonDoc(8192); // Adjust size as necessary
   JsonArray fuelArray = fuelJsonDoc.createNestedArray("hourlyFuelHistory");
   JsonArray timeArray = fuelJsonDoc.createNestedArray("hourlyFuelTimestamps");
 
@@ -2282,7 +2282,7 @@ String serializeHourlyFuelHistory() {
 }
 
 String serializeWattHourHistory() {
-  DynamicJsonDocument wattHourJsonDoc(4096); // Adjust size as necessary
+  DynamicJsonDocument wattHourJsonDoc(8192); // Adjust size as necessary
   JsonArray wattHourArray = wattHourJsonDoc.createNestedArray("wattHours");
   JsonArray timeArray = wattHourJsonDoc.createNestedArray("wattHourTimestamps");
 
@@ -2302,7 +2302,7 @@ String serializeWattHourHistory() {
 }
 
 String serializeAmpsHistory() {
-  DynamicJsonDocument ampsJsonDoc(4096); // Adjust size as necessary
+  DynamicJsonDocument ampsJsonDoc(8192); // Adjust size as necessary
   JsonArray ampsArray = ampsJsonDoc.createNestedArray("ampsHistory");
   JsonArray timeArray = ampsJsonDoc.createNestedArray("timestamps");
 
