@@ -230,6 +230,7 @@ void processFrame(uint8_t* frame);
 
 // Default enable thermostat mode at start up
 int controlEnable = 0;
+int controlState = -1;
 
 // set the currentTemperature default to something outside the usual range
 float currentTemperature = -200.0f;
@@ -340,7 +341,7 @@ float calculateTotalPower(float validatedSupply) {
   float wallFanPower = wallFanAmps * wallFanVoltage;
 
   // Control circuits (.5A when powered on)
-  float controlPower = .5 * validatedSupply;
+  float controlPower = .18 * validatedSupply;
 
   // Fuel pump
   float fuelPumpAmps = calculateFuelPumpAmps(pumpHz);
@@ -1445,6 +1446,9 @@ void loop() {
 
     lastSerialUpdate = millis();
     serialActive = true;
+    if (controlState >= 0) {
+      controlEnable = controlState; //restore previous state
+    }
     if (!serialEstablished) {
       controlEnable = 1;
       Serial.println("Serial communications established - Control Enabled");
@@ -1535,8 +1539,9 @@ void loop() {
     }
   }
 
-  // Check serial timeout (5s without frames)
-  if (serialActive && (millis() - lastSerialUpdate > 15000)) {
+  // Check serial timeout (20s without frames)
+  if (serialActive && (millis() - lastSerialUpdate > 20000)) {
+    controlState = controlEnable;
     serialActive = false;
     controlEnable = 0;
     heaterCommand = 0;
@@ -1610,8 +1615,8 @@ void loop() {
       }
 
       if (frostModeEnabled) {
+        controlEnable = 0;
         if (wallTempF < 40.0 && heaterStateNum == 0) {
-          controlEnable = 0;
           uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
           sendData(data1, 24);
           Serial.println("Frost Mode: Starting Heater");
