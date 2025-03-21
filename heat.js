@@ -825,7 +825,7 @@ tempChart = new Chart(ctx, {
         title: { display: true, text: 'Pump Frequency (Hz)', color: 'white' },
         position: 'right',
         min: -1,
-        max: 6,
+        max: 7,
         ticks: {
           stepSize: 1,
           callback: function(value) { return value + ' Hz'; },
@@ -979,7 +979,7 @@ var voltageChart = new Chart(ctxVoltage, {
             tooltipFormat: 'MM/dd H:00'
           },
           adapters: { date: { locale: customLocale } },
-          title: { display: true, text: 'Hour', color: 'grey' }
+          title: { display: false, text: 'Hour', color: 'grey' }
         },
         y: {
           beginAtZero: true,
@@ -1045,7 +1045,7 @@ var wattHourChart = new Chart(ctxWattHour, {
           tooltipFormat: 'MM/dd H:00'
         },
         adapters: { date: { locale: customLocale } },
-        title: { display: true, text: 'Hour', color: 'grey' }
+        title: { display: false, text: 'Hour', color: 'grey' }
       },
       y: {
         beginAtZero: true,
@@ -1301,7 +1301,7 @@ var wattHourChart = new Chart(ctxWattHour, {
           }
 
           const supplyVoltage = (data.supplyVoltage <= 5.0 || data.supplyVoltage > 15.0 || isNaN(data.supplyVoltage)) ? 12.0 : data.supplyVoltage;
-          const voltageRange = supplyVoltage - 10.0;
+          const voltageRange = supplyVoltage - 10.5;
 
           fanControlStates.duct = data.ductFanManualControl;
           updateButtonState('duct');
@@ -1313,9 +1313,9 @@ var wattHourChart = new Chart(ctxWattHour, {
                   ductPercent = 0; // Off state
                   ductVoltage = 0.0; // Ensure voltage reflects off state
               } else {
-                  // Calculate percent based on voltage (10.0V to supplyVoltage)
-                  const ductVoltageRange = supplyVoltage - 10.0;
-                  ductPercent = ((ductVoltage - 10.0) / ductVoltageRange) * 95 + 5; // Raw percent (5-100%)
+                  // Calculate percent based on voltage (10.5V to supplyVoltage)
+                  const ductVoltageRange = supplyVoltage - 10.5;
+                  ductPercent = ((ductVoltage - 10.5) / ductVoltageRange) * 95 + 5; // Raw percent (5-100%)
                   ductPercent = Math.round(ductPercent / 5) * 5; // Snap to nearest 5%
                   ductPercent = Math.max(0, Math.min(100, ductPercent)); // Clamp 0-100%
                   // Correct voltage if mismatch with PWM
@@ -1334,10 +1334,10 @@ var wattHourChart = new Chart(ctxWattHour, {
               if (ductPwm === 0) {
                   ductVoltage = 0.0;
               } else {
-                  // Map PWM back to voltage (10.0V to supplyVoltage)
-                  const ductVoltageRange = supplyVoltage - 10.0;
-                  ductVoltage = 10.0 + (ductPwm / 1023) * ductVoltageRange;
-                  ductVoltage = Math.min(supplyVoltage, Math.max(10.0, ductVoltage)); // Clamp to valid range
+                  // Map PWM back to voltage (10.5V to supplyVoltage)
+                  const ductVoltageRange = supplyVoltage - 10.5;
+                  ductVoltage = 10.5 + (ductPwm / 1023) * ductVoltageRange;
+                  ductVoltage = Math.min(supplyVoltage, Math.max(10.5, ductVoltage)); // Clamp to valid range
               }
               drawGauge('ductFanGauge', 0); // Gauge at 0% in auto mode
               document.getElementById('ductFanGaugeValue').textContent = '0%';
@@ -1354,9 +1354,9 @@ var wattHourChart = new Chart(ctxWattHour, {
                   wallPercent = 0; // Off state
                   wallVoltage = 0.0; // Ensure voltage reflects off state
               } else {
-                  // Calculate percent based on voltage (6.7V to supplyVoltage)
-                  const wallVoltageRange = supplyVoltage - 6.7;
-                  wallPercent = ((wallVoltage - 6.7) / wallVoltageRange) * 95 + 5; // Raw percent (5-100%)
+                  // Calculate percent based on voltage (6V to supplyVoltage)
+                  const wallVoltageRange = supplyVoltage - 6;
+                  wallPercent = ((wallVoltage - 6) / wallVoltageRange) * 95 + 5; // Raw percent (5-100%)
                   wallPercent = Math.round(wallPercent / 5) * 5; // Snap to nearest 5%
                   wallPercent = Math.max(0, Math.min(100, wallPercent)); // Clamp 0-100%
                   // Correct voltage if mismatch with PWM
@@ -1375,10 +1375,10 @@ var wattHourChart = new Chart(ctxWattHour, {
               if (wallPwm === 0) {
                   wallVoltage = 0.0;
               } else {
-                  // Map PWM back to voltage (6.7V to supplyVoltage)
-                  const wallVoltageRange = supplyVoltage - 6.7;
-                  wallVoltage = 6.7 + (wallPwm / 1023) * wallVoltageRange;
-                  wallVoltage = Math.min(supplyVoltage, Math.max(6.7, wallVoltage)); // Clamp to valid range
+                  // Map PWM back to voltage (6V to 7.5V)
+                  const wallVoltageRange = 7.5 - 6;
+                  wallVoltage = 6 + (wallPwm / 1023) * wallVoltageRange;
+                  wallVoltage = Math.min(supplyVoltage, Math.max(5, wallVoltage)); // Clamp to valid range
               }
               drawGauge('wallFanGauge', 0); // Gauge at 0% in auto mode
               document.getElementById('wallFanGaugeValue').textContent = '0%';

@@ -679,6 +679,7 @@
   <label>24HR Avg: <span id="avgWattHours24h">0.00 W/Hr</span>&nbsp;&nbsp;|&nbsp;&nbsp;<span>24HR Total: </span><span id="totalWh" class="value">Calculating...</span></label>
   </div>
   <canvas id="wattHourChart" width="400" height="150"></canvas>
+  <br>
   <canvas id="voltageChart" width="400" height="150"></canvas>
   <div class="file-area">
     <h2>File Upload</h2>

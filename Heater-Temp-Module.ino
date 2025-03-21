@@ -227,6 +227,7 @@ bool commandFrameReceived = false;  // Track if we've received a command frame
 bool validateCRC(uint8_t* frame);
 uint16_t calculateCRC16(const uint8_t* data, size_t length);
 void processFrame(uint8_t* frame);
+void saveHistoryToSPIFFS(bool enableYield = true);
 
 // Default enable thermostat mode at start up
 int controlEnable = 0;
@@ -286,35 +287,35 @@ float calculateDuctFanAmps(float voltage) {
 
 // Function to calculate wall fan amps based on voltage
 // This is for 4" 120mm server fan strongest 
-float calculateWallFanAmps(float voltage) {
-  if (voltage <= 0) return 0.0; // Invalid input
-  if (voltage <= 6.0) {
-    return (voltage / 6.0) * 0.4; // 0V to 6V: 0A to 0.4A
-  } else if (voltage <= 9.0) {
-    float slope = (1.0 - 0.4) / (9.0 - 6.0); // 0.2 A/V
-    return 0.4 + slope * (voltage - 6.0); // 6V to 9V
-  } else {
-    float slope = (1.25 - 1.0) / (12.0 - 9.0); // 0.08333 A/V
-    return 1.0 + slope * (voltage - 9.0); // 9V and beyond
-  }
-}
+// float calculateWallFanAmps(float voltage) {
+//   if (voltage <= 0) return 0.0; // Invalid input
+//   if (voltage <= 6.0) {
+//     return (voltage / 6.0) * 0.4; // 0V to 6V: 0A to 0.4A
+//   } else if (voltage <= 9.0) {
+//     float slope = (1.0 - 0.4) / (9.0 - 6.0); // 0.2 A/V
+//     return 0.4 + slope * (voltage - 6.0); // 6V to 9V
+//   } else {
+//     float slope = (1.25 - 1.0) / (12.0 - 9.0); // 0.08333 A/V
+//     return 1.0 + slope * (voltage - 9.0); // 9V and beyond
+//   }
+// }
 // this is for white 240CFM inline fan
 // Function to calculate wall fan amps based on voltage
-// float calculateWallFanAmps(float voltage) {
-//     if (voltage <= 0) return 0.0; // Invalid input
+float calculateWallFanAmps(float voltage) {
+    if (voltage <= 0) return 0.0; // Invalid input
     
-//     if (voltage <= 6.0) {
-//         return (voltage / 6.0) * 0.6; // 0V to 6V: 0A to 0.6A
-//     } 
-//     else if (voltage <= 9.0) {
-//         float slope = (1.2 - 0.6) / (9.0 - 6.0); // 0.2 A/V
-//         return 0.6 + slope * (voltage - 6.0); // 6V to 9V
-//     } 
-//     else {
-//         float slope = (3.5 - 1.2) / (12.0 - 9.0); // 0.76667 A/V
-//         return 1.2 + slope * (voltage - 9.0); // 9V and beyond
-//     }
-// }
+    if (voltage <= 6.0) {
+        return (voltage / 6.0) * 0.6; // 0V to 6V: 0A to 0.6A
+    } 
+    else if (voltage <= 9.0) {
+        float slope = (1.2 - 0.6) / (9.0 - 6.0); // 0.2 A/V
+        return 0.6 + slope * (voltage - 6.0); // 6V to 9V
+    } 
+    else {
+        float slope = (3.5 - 1.2) / (12.0 - 9.0); // 0.76667 A/V
+        return 1.2 + slope * (voltage - 9.0); // 9V and beyond
+    }
+}
 
 // Function to calculate fuel pump amps based on Hz
 float calculateFuelPumpAmps(float hz) {
@@ -460,10 +461,10 @@ float calculateRolling24HourAverageWattHours() {
   return 0.0; // Default if no data
 }
 
-// Dynamically adjust PWM as voltage sags with battery drain, ensuring minimum 10V output
+// Dynamically adjust PWM as voltage sags with battery drain, ensuring minimum 9V output
 inline int calculateAdjustedPWM(float targetVoltage, float supplyVoltage) {
   const float REF_VOLTAGE = 13.1;    // Reference supply voltage
-  const float MIN_VOLTAGE = 10.0;    // Minimum operational voltage
+  const float MIN_VOLTAGE = 9;    // Minimum operational voltage
   const float REF_10V = 10.0;
   const float REF_12V = 12.0;
   const float DEFAULT_SUPPLY = 12.0; // Default if supplyVoltage invalid
@@ -1049,12 +1050,12 @@ void setup() {
 
         float validatedSupply = (supplyVoltage <= 5.0 || supplyVoltage > 15.0 || isnan(supplyVoltage)) ? 12.0 : supplyVoltage;
         if (strcmp(arg, "ductSpeed") == 0) {
-          float voltageRange = validatedSupply - 10.0;
-          targetVoltage = (percent == 0) ? 0.0 : 10.0 + (percent / 100.0) * voltageRange;
-          fanSpeed = (targetVoltage < 10.0) ? 0 : calculateAdjustedPWM(targetVoltage, validatedSupply);
+          float voltageRange = validatedSupply - MIN_FAN_VOLTAGE;
+          targetVoltage = (percent == 0) ? 0.0 : MIN_FAN_VOLTAGE + (percent / 100.0) * voltageRange;
+          fanSpeed = (targetVoltage < MIN_FAN_VOLTAGE) ? 0 : calculateAdjustedPWM(targetVoltage, validatedSupply);
         } else if (strcmp(arg, "wallSpeed") == 0) {
-          float voltageRange = validatedSupply - 6.7; // 12.5 - 7 = 5.5V
-          targetVoltage = (percent == 0) ? 0.0 : 6.7 + (percent / 100.0) * voltageRange;
+          float voltageRange = validatedSupply - 6; // 12.5 - 7 = 5.5V
+          targetVoltage = (percent == 0) ? 0.0 : 6 + (percent / 100.0) * voltageRange;
           fanSpeed = calculateAdjustedPWM(targetVoltage, validatedSupply);
         }
         ledcWrite(pin, fanSpeed);
@@ -1250,7 +1251,7 @@ void setup() {
     if (DEBUG) Serial.println("Reboot w/ save request received with confirmation");
     request->send(200, "text/plain", "Rebooting w/save ESP32...");
     request->onDisconnect([]() {
-      saveHistoryToSPIFFS();
+      saveHistoryToSPIFFS(0);
       end();
       ESP.restart();
     });
@@ -1330,7 +1331,7 @@ void setup() {
   ElegantOTA.onEnd([](bool success) {
     pinMode(HEATER_PIN, INPUT);  // Assuming it should go back to being an input
     eventen = true;
-    saveHistoryToSPIFFS();
+    saveHistoryToSPIFFS(0);
     Serial.println("OTA Update End");
     Serial.print("Update ");
     Serial.print(success ? "Succeeded" : "Failed");
@@ -1707,18 +1708,18 @@ void loop() {
               }
 
               // Mode 1: Fan speed-based control (if tempGap isn’t driving)
-              if (newDuctFanPWM == 0 && fanSpeed > 2000 && heaterStateNum > 3) {
-                  newVoltage = map(fanSpeed, 2000, 4900, 10.0, validatedSupply);
-                  newVoltage = constrain(newVoltage, 10.0, validatedSupply);
+              if (newDuctFanPWM == 0 && fanSpeed > 2300 && heaterStateNum > 3) {
+                  newVoltage = map(fanSpeed, 2300, 4900, MIN_FAN_VOLTAGE, validatedSupply);
+                  newVoltage = constrain(newVoltage, MIN_FAN_VOLTAGE, validatedSupply);
                   newDuctFanPWM = calculateAdjustedPWM(newVoltage, validatedSupply);
                   ductfandelay = 0;
                   if (DEBUG) Serial.printf("Duct fan auto (fanSpeed mode): fanSpeed=%d, heaterState=%d, targetV=%.1f, PWM=%d\n",
                       fanSpeed, heaterStateNum, newVoltage, newDuctFanPWM);
               }
           } else {
-              if (fanSpeed > 2000 && heaterStateNum > 3) {
-                  newVoltage = map(fanSpeed, 2000, 4900, 10.0, validatedSupply);
-                  newVoltage = constrain(newVoltage, 10.0, validatedSupply);
+              if (fanSpeed > 2300 && heaterStateNum > 3) {
+                  newVoltage = map(fanSpeed, 2300, 4900, MIN_FAN_VOLTAGE, validatedSupply);
+                  newVoltage = constrain(newVoltage, MIN_FAN_VOLTAGE, validatedSupply);
                   newDuctFanPWM = calculateAdjustedPWM(newVoltage, validatedSupply);
                   ductfandelay = 0;
                   if (DEBUG) Serial.printf("Duct fan auto (fanSpeed mode, temp invalid): fanSpeed=%d, heaterState=%d, targetV=%.1f, PWM=%d\n",
@@ -1753,14 +1754,14 @@ void loop() {
       if (wallFanManualControl) {
           float newVoltage = manualWallFanVoltage;
           if (newVoltage >= 0) {
-              float percent = (newVoltage - 6.7) / (HIGH_FAN_VOLTAGE - 6.7) * 100.0;
+              float percent = (newVoltage - 6) / (HIGH_FAN_VOLTAGE - 6) * 100.0;
               if (percent <= 0 || newVoltage == 0) {
                   manualWallFanSpeed = 0;
                   newVoltage = 0.0;
               } else if (percent <= 50.0) {
-                  float voltageRange = 9.5 - 6.7;
-                  newVoltage = 6.7 + (percent / 50.0) * voltageRange;
-                  manualWallFanSpeed = (int)(cachedFanLow * (6.7 / 10.5) + (cachedFanMed * (9.5 / 11.5) - cachedFanLow * (6.7 / 10.5)) * (percent / 50.0));
+                  float voltageRange = 9.5 - 6;
+                  newVoltage = 5 + (percent / 50.0) * voltageRange;
+                  manualWallFanSpeed = (int)(cachedFanLow * (6 / 10.5) + (cachedFanMed * (9.5 / 11.5) - cachedFanLow * (6 / 10.5)) * (percent / 50.0));
               } else {
                   float voltageRange = validatedSupply - 9.5;
                   newVoltage = 9.5 + ((percent - 50.0) / 50.0) * voltageRange;
@@ -1780,7 +1781,7 @@ void loop() {
           float newVoltage = 0.0;
 
           if (voltagegood && heaterStateNum > 3 && heaterinternalTemp >= 38 && pumpHz != 1) {
-              if (fanSpeed <= 2000) {
+              if (fanSpeed <= 2300) {
                   if (wallfandelay == 0) {
                       wallfandelay = millis() + 30000; // 30-second delay to turn off
                       if (DEBUG) Serial.printf("Wall fan preparing to turn off (low speed), delay until %lu\n", wallfandelay);
@@ -1793,19 +1794,22 @@ void loop() {
                       newVoltage = lastWallVoltage; // Maintain last voltage during delay
                   }
               } else {
-                  // Linear interpolation: 2000 RPM (6.7V) to 4900 RPM (10V)
-                  // Capping at 10v in auto mode to limit noise
-                  float minPWM = cachedFanLow * (6.7 / 10.5); // PWM at 6.7V
-                  float maxPWM = cachedFanHigh; // PWM at validatedSupply
-                  float rpmRange = 4900.0 - 2000.0; // 2900 RPM span
-                  float voltageRange = 10.0 - 6.7; // 3.3V span
-                  float pwmRange = maxPWM - minPWM;
-                  float rpmFraction = (fanSpeed - 2000.0) / rpmRange; // 0.0 at 2000 RPM, 1.0 at 4900 RPM
-                  if (fanSpeed >= 4900) rpmFraction = 1.0; // Cap at 4900 RPM
-                  newWallFanPWM = (int)(minPWM + pwmRange * rpmFraction);
-                  newVoltage = 6.7 + (rpmFraction * voltageRange); // Voltage scales from 6.7V to 10V
-                  newWallFanPWM = constrain(newWallFanPWM, (int)minPWM, (int)maxPWM);
-                  wallfandelay = 0; // No delay on speed changes
+                  // Linear interpolation: 2300 RPM (5V) to 4900 RPM (7.5V)
+                  float minVoltage = 6;
+                  float maxVoltage = 7.5;
+                  float rpmRange = 4900.0 - 2300.0;
+                  float voltageRange = maxVoltage - minVoltage;
+                  float rpmFraction = (fanSpeed - 2300.0) / rpmRange;
+                  if (fanSpeed >= 4900) rpmFraction = 1.0;
+                  newVoltage = minVoltage + (rpmFraction * voltageRange);
+
+                  // Direct PWM calculation for current supply voltage
+                  newWallFanPWM = (int)((newVoltage / supplyVoltage) * PWM_MAX);
+                  newWallFanPWM = constrain(newWallFanPWM, 0, PWM_MAX);
+
+                  wallfandelay = 0;
+                  if (DEBUG) Serial.printf("Wall fan auto: fanSpeed=%d, rpmFraction=%.3f, Voltage=%.1fV, PWM=%d\n",
+                                          fanSpeed, rpmFraction, newVoltage, newWallFanPWM);
               }
           } else if (wallfan > 0) { // Condition false but fan was on
               if (wallfandelay == 0) {
@@ -2325,7 +2329,7 @@ String serializeAmpsHistory() {
 }
 
 // Update saveHistoryToSPIFFS to include outdoor temperature
-void saveHistoryToSPIFFS() {
+void saveHistoryToSPIFFS(bool enableYield) {
   saveError = "";
   unsigned long currentTime = timeClient.getEpochTime();
   if (currentTime < 1710000000) {
@@ -2415,7 +2419,7 @@ void saveHistoryToSPIFFS() {
         validTempEntries++;
       }
     }
-    if (i % 100 == 0) yield();  // Yield every 100 iterations
+    if (enableYield && i % 100 == 0) yield();  // Yield only if enabled
   }
 
   // Filter and add voltage data
@@ -2437,7 +2441,7 @@ void saveHistoryToSPIFFS() {
         validVoltEntries++;
       }
     }
-    if (i % 100 == 0) yield();
+    if (enableYield && i % 100 == 0) yield();
   }
 
   // Filter and add amps data (12-hour window)
@@ -2460,7 +2464,7 @@ void saveHistoryToSPIFFS() {
         validAmpsEntries++;
       }
     }
-    if (i % 100 == 0) yield();
+    if (enableYield && i % 100 == 0) yield();
   }
 
   // Filter and add pump Hz data
@@ -2482,7 +2486,7 @@ void saveHistoryToSPIFFS() {
         validPumpHzEntries++;
       }
     }
-    if (i % 100 == 0) yield();
+    if (enableYield && i % 100 == 0) yield();
   }
 
   // Filter and add outside temperature data
@@ -2504,7 +2508,7 @@ void saveHistoryToSPIFFS() {
         validOutsideTempEntries++;
       }
     }
-    if (i % 100 == 0) yield();
+    if (enableYield && i % 100 == 0) yield();
   }
 
   // Filter and add hourly fuel data
@@ -2529,11 +2533,11 @@ void saveHistoryToSPIFFS() {
         validHourlyFuelEntries++;
       }
     }
-    if (i % 100 == 0) yield();
+    if (enableYield && i % 100 == 0) yield();
   }
   (*doc)["hourlyFuelAccumulator"] = hourlyFuelAccumulator;
   (*doc)["hourlyFuelAccumulatorTime"] = currentTime;
-  (*doc)["lastHourlyFuelUpdate"] = lastHourlyFuelUpdate; // Add this line
+  (*doc)["lastHourlyFuelUpdate"] = lastHourlyFuelUpdate;
 
   // Filter and add watt-hour data (24-hour window)
   int validWattHourEntries = 0;
@@ -2559,7 +2563,7 @@ void saveHistoryToSPIFFS() {
         validWattHourEntries++;
       }
     }
-    if (i % 100 == 0) yield();
+    if (enableYield && i % 100 == 0) yield();
   }
   (*doc)["wattHourAccumulator"] = wattHourAccumulator;
   (*doc)["wattHourAccumulatorTime"] = currentTime;
@@ -2940,4 +2944,5 @@ bool loadHistoryFromSPIFFS() {
 
 void end() {
   preferences.end(); // Close preferences at the end of the program if applicable
+  delay(1000);
 }
