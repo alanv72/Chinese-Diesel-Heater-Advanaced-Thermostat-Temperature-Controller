@@ -113,7 +113,7 @@ const char* WEATHER_API_HOST = "api.openweathermap.org";
 float outsideTempF = NAN; // Variable to store outside temperature in Fahrenheit
 float outsideHumidity = NAN; // Variable to store outside humidity percentage
 unsigned long lastWeatherUpdate = 0;
-const unsigned long WEATHER_UPDATE_INTERVAL = 890000;
+const unsigned long WEATHER_UPDATE_INTERVAL = 600000;
 #define OUTSIDE_TEMP_HISTORY_SIZE 720 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
 float outsideTempHistory[OUTSIDE_TEMP_HISTORY_SIZE];
 unsigned long outsideTempTimestamps[OUTSIDE_TEMP_HISTORY_SIZE];
@@ -199,8 +199,8 @@ int heaterStateNum = -1;
 const char* heaterError[] = {
   "No Error",                     // 0 - No Error (0 - 1 = -1, but we treat 0 as no error)
   "Running w/o Error",        // 1 - No Error, but started (1 - 1 = 0)
-  "Voltage too high",              // 2 - Voltage too low (2 - 1 = 1)
-  "Voltage too low",             // 3 - Voltage too high (3 - 1 = 2)
+  "Voltage too low",              // 2 - Voltage too high (2 - 1 = 1)
+  "Voltage too high",             // 3 - Voltage too low (3 - 1 = 2)
   "Ignition plug failure",        // 4 - Ignition plug failure (4 - 1 = 3)
   "Pump Failure over current",  // 5 - Pump Failure (5 - 1 = 4)
   "Overheating",                  // 6 - Too hot (6 - 1 = 5)
@@ -2513,27 +2513,28 @@ void saveHistoryToSPIFFS(bool enableYield) {
 
   // Filter and add hourly fuel data
   int validHourlyFuelEntries = 0;
+  unsigned long oneDayAgo = currentTime - 86400;
   for (int i = 0; i < HOURLY_FUEL_HISTORY_SIZE; i++) {
-    int realIndex = (hourlyFuelIndex - HOURLY_FUEL_HISTORY_SIZE + i + HOURLY_FUEL_HISTORY_SIZE) % HOURLY_FUEL_HISTORY_SIZE;
-    if (hourlyFuelTimestamps[realIndex] > 0 &&
-        hourlyFuelTimestamps[realIndex] >= blockStart && hourlyFuelTimestamps[realIndex] < blockEnd) {
-      bool exists = false;
-      for (size_t j = 0; j < hourlyTimeArray.size(); j++) {
-        if (hourlyTimeArray[j].as<unsigned long>() == hourlyFuelTimestamps[realIndex]) {
-          exists = true;
-          if (hourlyFuelArray[j].as<float>() != hourlyFuelHistory[realIndex]) {
-            hourlyFuelArray[j] = hourlyFuelHistory[realIndex];
+      int realIndex = (hourlyFuelIndex - HOURLY_FUEL_HISTORY_SIZE + i + HOURLY_FUEL_HISTORY_SIZE) % HOURLY_FUEL_HISTORY_SIZE;
+      if (hourlyFuelTimestamps[realIndex] > 0 &&
+          hourlyFuelTimestamps[realIndex] >= oneDayAgo) {
+          bool exists = false;
+          for (size_t j = 0; j < hourlyTimeArray.size(); j++) {
+              if (hourlyTimeArray[j].as<unsigned long>() == hourlyFuelTimestamps[realIndex]) {
+                  exists = true;
+                  if (hourlyFuelArray[j].as<float>() != hourlyFuelHistory[realIndex]) {
+                      hourlyFuelArray[j] = hourlyFuelHistory[realIndex];
+                  }
+                  break;
+              }
           }
-          break;
-        }
+          if (!exists) {
+              hourlyFuelArray.add(hourlyFuelHistory[realIndex]);
+              hourlyTimeArray.add(hourlyFuelTimestamps[realIndex]);
+              validHourlyFuelEntries++;
+          }
       }
-      if (!exists) {
-        hourlyFuelArray.add(hourlyFuelHistory[realIndex]);
-        hourlyTimeArray.add(hourlyFuelTimestamps[realIndex]);
-        validHourlyFuelEntries++;
-      }
-    }
-    if (enableYield && i % 100 == 0) yield();
+      if (enableYield && i % 100 == 0) yield();
   }
   (*doc)["hourlyFuelAccumulator"] = hourlyFuelAccumulator;
   (*doc)["hourlyFuelAccumulatorTime"] = currentTime;
