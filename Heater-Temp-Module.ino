@@ -748,7 +748,7 @@ void cleanCorruptedHistoryFiles() {
 
     // Check critical arrays for consistency (only watt and fuel matter for removal)
     const char* criticalTimeKeys[] = {"hourlyFuelTimestamps", "wattHourTimestamps"};
-    const char* criticalValueKeys[] = {"hourlyFuelHistory", "wattHours"};
+    const char* criticalValueKeys[] = {"hourlyFuelHistory", "wattHourHistory"};
     bool hasCriticalMismatch = false;
 
     for (int k = 0; k < 2; k++) {
@@ -2292,7 +2292,7 @@ String serializeHourlyFuelHistory() {
 
 String serializeWattHourHistory() {
   DynamicJsonDocument wattHourJsonDoc(8192); // Adjust size as necessary
-  JsonArray wattHourArray = wattHourJsonDoc.createNestedArray("wattHours");
+  JsonArray wattHourArray = wattHourJsonDoc.createNestedArray("wattHourHistory");
   JsonArray timeArray = wattHourJsonDoc.createNestedArray("wattHourTimestamps");
 
   unsigned long currentTime = timeClient.getEpochTime();
@@ -2381,7 +2381,7 @@ void saveHistoryToSPIFFS(bool enableYield) {
     (*doc).createNestedArray("outsideTempTimestamps");
     (*doc).createNestedArray("hourlyFuelHistory");
     (*doc).createNestedArray("hourlyFuelTimestamps");
-    (*doc).createNestedArray("wattHours");
+    (*doc).createNestedArray("wattHourHistory");
     (*doc).createNestedArray("wattHourTimestamps");
   }
 
@@ -2397,7 +2397,7 @@ void saveHistoryToSPIFFS(bool enableYield) {
   JsonArray outsideTempTimeArray = (*doc)["outsideTempTimestamps"];
   JsonArray hourlyFuelArray = (*doc)["hourlyFuelHistory"];
   JsonArray hourlyTimeArray = (*doc)["hourlyFuelTimestamps"];
-  JsonArray wattHourArray = (*doc)["wattHours"];
+  JsonArray wattHourArray = (*doc)["wattHourHistory"];
   JsonArray wattTimeArray = (*doc)["wattHourTimestamps"];
 
   // Filter and add temperature data
@@ -2773,7 +2773,7 @@ bool loadHistoryFromSPIFFS() {
     JsonArray outsideTempTimeArray = (*doc)["outsideTempTimestamps"];
     JsonArray hourlyFuelArray = (*doc)["hourlyFuelHistory"];
     JsonArray hourlyTimeArray = (*doc)["hourlyFuelTimestamps"];
-    JsonArray wattHourArray = (*doc)["wattHours"];
+    JsonArray wattHourArray = (*doc)["wattHourHistory"];
     JsonArray wattTimeArray = (*doc)["wattHourTimestamps"];
 
     for (size_t j = 0; j < tempArray.size(); j++) {
