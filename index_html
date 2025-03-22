@@ -278,7 +278,6 @@
   }
   #frostModeControl label.active {
     background-color: #e67e22;
-    width: 100%;
   }
   button#heateron {
     padding: 5px 10px;
@@ -671,6 +670,7 @@
       <button id="setZipButton">Set ZIP Code</button> <!-- No onclick -->
     </div>
   </div>
+  <canvas id="voltageChart" width="400" height="150"></canvas>
   <div id="fuelchart"><br>
   <div class="data-box" id="totalGalLabel"><span>24HR Total: </span><span id="totalGal" class="value">Calculating...</span></div>
   </div>
@@ -679,8 +679,6 @@
   <label>24HR Avg: <span id="avgWattHours24h">0.00 W/Hr</span>&nbsp;&nbsp;|&nbsp;&nbsp;<span>24HR Total: </span><span id="totalWh" class="value">Calculating...</span></label>
   </div>
   <canvas id="wattHourChart" width="400" height="150"></canvas>
-  <br>
-  <canvas id="voltageChart" width="400" height="150"></canvas>
   <div class="file-area">
     <h2>File Upload</h2>
     <form method="POST" action="/upload" enctype="multipart/form-data">
