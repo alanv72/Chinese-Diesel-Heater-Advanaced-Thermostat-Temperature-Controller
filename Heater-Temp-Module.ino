@@ -2542,7 +2542,7 @@ void saveHistoryToSPIFFS(bool enableYield) {
 
   // Filter and add watt-hour data (24-hour window)
   int validWattHourEntries = 0;
-  unsigned long oneDayAgo = currentTime - 86400;
+  oneDayAgo = currentTime - 86400;
   for (int i = 0; i < WATT_HOUR_HISTORY_SIZE; i++) {
     int realIndex = (wattHourIndex - WATT_HOUR_HISTORY_SIZE + i + WATT_HOUR_HISTORY_SIZE) % WATT_HOUR_HISTORY_SIZE;
     if (wattHourTimestamps[realIndex] > 0 &&
