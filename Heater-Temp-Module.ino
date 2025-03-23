@@ -114,7 +114,7 @@ float outsideTempF = NAN; // Variable to store outside temperature in Fahrenheit
 float outsideHumidity = NAN; // Variable to store outside humidity percentage
 unsigned long lastWeatherUpdate = 0;
 const unsigned long WEATHER_UPDATE_INTERVAL = 600000;
-#define OUTSIDE_TEMP_HISTORY_SIZE 720 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
+#define OUTSIDE_TEMP_HISTORY_SIZE 168 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
 float outsideTempHistory[OUTSIDE_TEMP_HISTORY_SIZE];
 unsigned long outsideTempTimestamps[OUTSIDE_TEMP_HISTORY_SIZE];
 int outsideTempIndex = 0;
@@ -149,16 +149,16 @@ String message = "";
 String saveError = ""; // Global variable to store errors, add this outside any function
 unsigned long lastSerialUpdate = 0;
 
-#define TEMP_HISTORY_SIZE 720 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
+#define TEMP_HISTORY_SIZE 168 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
 #define INTERVAL_BETWEEN_SAVES 300000
 float tempHistory[TEMP_HISTORY_SIZE];
 unsigned long tempTimestamps[TEMP_HISTORY_SIZE];
 int tempIndex = 0;
-#define VOLTAGE_HISTORY_SIZE 720  // Same as temperature: 12 hours of data
+#define VOLTAGE_HISTORY_SIZE 168  // Same as temperature: 12 hours of data
 float voltageHistory[VOLTAGE_HISTORY_SIZE];
 unsigned long voltageTimestamps[VOLTAGE_HISTORY_SIZE];
 int voltageIndex = 0;
-#define PUMP_HZ_HISTORY_SIZE 720 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
+#define PUMP_HZ_HISTORY_SIZE 168 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
 float pumpHzHistory[PUMP_HZ_HISTORY_SIZE];
 unsigned long pumpHzTimestamps[PUMP_HZ_HISTORY_SIZE];
 int pumpHzIndex = 0;
@@ -172,7 +172,7 @@ int wattHourIndex = 0;
 float wattHourAccumulator = 0.0;
 unsigned long wattHourAccumulatorTime = 0;  // Accumulates watt-hours for the current hour
 float avgWattHours24h = 0.0; // 24-hour average watt-hours
-#define AMPS_HISTORY_SIZE 720 // Same as voltage: 12 hours of data at 5-minute intervals
+#define AMPS_HISTORY_SIZE 168 // Same as voltage: 12 hours of data at 5-minute intervals
 float ampsHistory[AMPS_HISTORY_SIZE];
 unsigned long ampsTimestamps[AMPS_HISTORY_SIZE];
 int ampsIndex = 0;
@@ -228,6 +228,18 @@ bool validateCRC(uint8_t* frame);
 uint16_t calculateCRC16(const uint8_t* data, size_t length);
 void processFrame(uint8_t* frame);
 void saveHistoryToSPIFFS(bool enableYield = true);
+
+// Struct to hold memory stats
+struct MemoryStats {
+  uint32_t freeHeap;
+  uint32_t minFreeHeap;
+  uint32_t largestFreeBlock;
+  bool lowMemoryWarning;
+  bool fragmentationWarning;
+};
+
+// Global variable to store latest memory stats
+MemoryStats latestMemoryStats = {0, 0, 0, false, false};
 
 // Default enable thermostat mode at start up
 int controlEnable = 0;
@@ -925,7 +937,7 @@ void setup() {
   cleanCorruptedHistoryFiles();
 
   Serial.println("Loaded currentFileIndex: " + String(currentFileIndex));
-  printMemoryStats();
+  getMemoryStats();
   if (!loadHistoryFromSPIFFS()) {
     Serial.println("No history files or load failed, initializing defaults");
     for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
@@ -2060,7 +2072,11 @@ void loop() {
     jsonDoc["zipcode"] = ZIP_CODE;
     jsonDoc["saveError"] = saveError; // Add error message to JSON
     jsonDoc["serialinterruptcount"] = serialinterruptcount;
-
+    jsonDoc["freeHeap"] = latestMemoryStats.freeHeap;
+    jsonDoc["minFreeHeap"] = latestMemoryStats.minFreeHeap;
+    jsonDoc["largestFreeBlock"] = latestMemoryStats.largestFreeBlock;
+    jsonDoc["lowMemoryWarning"] = latestMemoryStats.lowMemoryWarning;
+    jsonDoc["fragmentationWarning"] = latestMemoryStats.fragmentationWarning;
 
     String jsonString;
     serializeJson(jsonDoc, jsonString);
@@ -2079,7 +2095,7 @@ void loop() {
   // Memory stats every 60s
   if ((unsigned long)(currentMillis - lastMemoryCheckTime) >= 60000) { // Overflow-safe
     lastMemoryCheckTime = currentMillis;
-    printMemoryStats();
+    getMemoryStats();
   }
 
   if ((unsigned long)(millis() - lastWeatherUpdate) >= WEATHER_UPDATE_INTERVAL) {
@@ -2171,28 +2187,23 @@ void simulateButtonPress(int pin) {
   digitalWrite(pin, HIGH);
 }
 
-void printMemoryStats() {
-  // Get the total free heap size
-  uint32_t freeHeap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-  
-  // Get the minimum heap size that was ever free
-  uint32_t minFreeHeap = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
-  
-  // Get the largest block of memory that's currently free
-  uint32_t largestFreeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+void getMemoryStats() {
+  // Update global memory stats
+  latestMemoryStats.freeHeap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+  latestMemoryStats.minFreeHeap = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
+  latestMemoryStats.largestFreeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+  latestMemoryStats.lowMemoryWarning = (latestMemoryStats.freeHeap < 50000);
+  latestMemoryStats.fragmentationWarning = (latestMemoryStats.largestFreeBlock < (latestMemoryStats.freeHeap / 2));
 
-  // Print memory stats
+  // Print to Serial (unchanged from original)
   Serial.println("\nMemory Status:");
-  Serial.printf("  Free Heap: %d bytes\n", freeHeap);
-  Serial.printf("  Minimum Free Heap: %d bytes\n", minFreeHeap);
-  Serial.printf("  Largest Free Block: %d bytes\n", largestFreeBlock);
-    // Check for low memory conditions
-  if (freeHeap < 50000) {  // Example threshold, adjust as needed
+  Serial.printf("  Free Heap: %d bytes\n", latestMemoryStats.freeHeap);
+  Serial.printf("  Minimum Free Heap: %d bytes\n", latestMemoryStats.minFreeHeap);
+  Serial.printf("  Largest Free Block: %d bytes\n", latestMemoryStats.largestFreeBlock);
+  if (latestMemoryStats.lowMemoryWarning) {
     Serial.println("Warning: Low memory detected!");
   }
-
-  // Check for potential fragmentation
-  if (largestFreeBlock < (freeHeap / 2)) {  // If less than half of free heap is largest block
+  if (latestMemoryStats.fragmentationWarning) {
     Serial.println("Warning: Possible memory fragmentation detected!");
   }
 }
