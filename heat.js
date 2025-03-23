@@ -1399,7 +1399,7 @@ var wattHourChart = new Chart(ctxWattHour, {
           // 2. Watt-Hours Total (24hr Wh)
           if (data.wattHourHistory) {
             const wattHourData = JSON.parse(data.wattHourHistory);
-            const hourlyWattHours = wattHourData.wattHours || [];
+            const hourlyWattHours = wattHourData.wattHourHistory || [];
             const wattHourAccumulator = wattHourData.wattHourAccumulator || 0;
             
             // Sum historical watt-hours and add accumulator
@@ -1516,7 +1516,7 @@ var wattHourChart = new Chart(ctxWattHour, {
           // Update watt-hour chart
           if (data.wattHourHistory) {
             const wattHourData = JSON.parse(data.wattHourHistory);
-            const hourlyWattHours = wattHourData.wattHours || [];
+            const hourlyWattHours = wattHourData.wattHourHistory || [];
             const wattHourTimestamps = wattHourData.wattHourTimestamps || [];
             const wattHourAccumulator = wattHourData.wattHourAccumulator || 0;
 
