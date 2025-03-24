@@ -72,6 +72,14 @@ int cachedFanLow = 0, cachedFanMed = 0, cachedFanHigh = 0;
 // Debug flag (set to 0 in production)
 const bool DEBUG = 0;
 
+// Global variable to track WDT timeouts
+bool wdtTimeoutOccurred = false;
+// Optional: Counter for total WDT timeouts since boot
+unsigned int wdtTimeoutCount = 0;
+
+static DynamicJsonDocument jsonDoc(24576);
+static  DynamicJsonDocument serializeJsonDoc(8192); // Adjust size as necessary
+
 ESP32SoftwareSerial sOne(HEATER_PIN);
 
 // Setup OneWire and DallasTemperature for DS18B20
@@ -1011,7 +1019,9 @@ void setup() {
     controlEnable = (enable == "true") ? 1 : 0;
     preferences.putInt("controlEnable", controlEnable);  // Save state
     request->send(200, "text/plain", "Thermostat control toggled");
-
+    if (controlEnable) {
+      frostModeEnabled = false;  // Only set frostModeEnabled to false when controlEnable is true
+    }
     // Optionally send an update immediately to reflect the change
     DynamicJsonDocument jsonDoc(1024);
     jsonDoc["controlEnable"] = controlEnable;
@@ -1390,9 +1400,12 @@ void loop() {
 
   // Watchdog check and reset
   if (esp_task_wdt_status(NULL) == ESP_ERR_TIMEOUT) {
+    wdtTimeoutOccurred = true; // Set flag for current state
+    wdtTimeoutCount++;         // Increment counter
     Serial.println("Warning: Task Watchdog Timer timeout detected!");
     esp_task_wdt_reset();
   } else {
+    esp_task_wdt_reset();       // Normal reset
     esp_task_wdt_reset();
   }
 
@@ -1533,6 +1546,7 @@ void loop() {
       if (setTemperature >= (currentTemperature + 1) && heaterErrorNum <= 1 && heaterStateNum == 0) {
         uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
         sendData(data1, 24);
+        cshut = 0;
         flashLength = 100;
         Serial.println("  Starting Heater");
       }
@@ -1632,11 +1646,13 @@ void loop() {
         if (wallTempF < 40.0 && heaterStateNum == 0) {
           uint8_t data1[24] = { 0x76, 0x16, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
           sendData(data1, 24);
+          cshut = 0;
           Serial.println("Frost Mode: Starting Heater");
           message = "Frost Mode Start";
         } else if (wallTempF >= 46.0 && heaterStateNum > 0) {
           uint8_t data1[24] = { 0x76, 0x16, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xDC, 0x13, 0x88, 0x00, 0x00, 0x32, 0x00, 0x00, 0x05, 0x00, 0xEB, 0x02, 0x00, 0xC8, 0x00, 0x00 };
           sendData(data1, 24);
+          cshut = 1;
           Serial.println("Frost Mode: Shutting Down Heater");
           message = "Frost Mode Shutdown";
         }
@@ -2008,7 +2024,7 @@ void loop() {
       lastSave = millis();
     }
     
-    DynamicJsonDocument jsonDoc(24576);
+    jsonDoc.clear();
     jsonDoc["bleName"] = currentBLEName;
     jsonDoc["currentTemp"] = (currentTemperature == -200.0f) ? 0 : round(celsiusToFahrenheit(currentTemperature));
     jsonDoc["setTemp"] = round(celsiusToFahrenheit(setTemperature));
@@ -2077,6 +2093,8 @@ void loop() {
     jsonDoc["largestFreeBlock"] = latestMemoryStats.largestFreeBlock;
     jsonDoc["lowMemoryWarning"] = latestMemoryStats.lowMemoryWarning;
     jsonDoc["fragmentationWarning"] = latestMemoryStats.fragmentationWarning;
+    jsonDoc["wdtTimeoutOccurred"] = wdtTimeoutOccurred;
+    jsonDoc["wdtTimeoutCount"] = wdtTimeoutCount;
 
     String jsonString;
     serializeJson(jsonDoc, jsonString);
@@ -2209,9 +2227,9 @@ void getMemoryStats() {
 }
 
 String serializeTempHistory() {
-  DynamicJsonDocument tempJsonDoc(8192); // Adjust size as necessary
-  JsonArray tempArray = tempJsonDoc.createNestedArray("tempHistory");
-  JsonArray timeArray = tempJsonDoc.createNestedArray("timestamps");
+  serializeJsonDoc.clear();
+  JsonArray tempArray = serializeJsonDoc.createNestedArray("tempHistory");
+  JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
 
   unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
@@ -2222,14 +2240,14 @@ String serializeTempHistory() {
     }
   }
   String output;
-  serializeJson(tempJsonDoc, output);
+  serializeJson(serializeJsonDoc, output);
   return output;
 }
 
 String serializeVoltageHistory() {
-  DynamicJsonDocument voltageJsonDoc(8192); // Adjust size as necessary
-  JsonArray voltageArray = voltageJsonDoc.createNestedArray("voltageHistory");
-  JsonArray timeArray = voltageJsonDoc.createNestedArray("timestamps");
+  serializeJsonDoc.clear();
+  JsonArray voltageArray = serializeJsonDoc.createNestedArray("voltageHistory");
+  JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
 
   unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
@@ -2240,14 +2258,14 @@ String serializeVoltageHistory() {
     }
   }
   String output;
-  serializeJson(voltageJsonDoc, output);
+  serializeJson(serializeJsonDoc, output);
   return output;
 }
 
 String serializePumpHzHistory() {
-  DynamicJsonDocument pumpHzJsonDoc(8192); // Adjust size as necessary
-  JsonArray pumpHzArray = pumpHzJsonDoc.createNestedArray("pumpHzHistory");
-  JsonArray timeArray = pumpHzJsonDoc.createNestedArray("timestamps");
+  serializeJsonDoc.clear();
+  JsonArray pumpHzArray = serializeJsonDoc.createNestedArray("pumpHzHistory");
+  JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
 
   unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < PUMP_HZ_HISTORY_SIZE; i++) {
@@ -2258,15 +2276,15 @@ String serializePumpHzHistory() {
     }
   }
   String output;
-  serializeJson(pumpHzJsonDoc, output);
+  serializeJson(serializeJsonDoc, output);
   return output;
 }
 
 // New serialization function for outdoor temperature
 String serializeOutsideTempHistory() {
-  DynamicJsonDocument outsideTempJsonDoc(8192); // Adjust size as necessary
-  JsonArray outsideTempArray = outsideTempJsonDoc.createNestedArray("outsideTempHistory");
-  JsonArray timeArray = outsideTempJsonDoc.createNestedArray("timestamps");
+  serializeJsonDoc.clear();
+  JsonArray outsideTempArray = serializeJsonDoc.createNestedArray("outsideTempHistory");
+  JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
 
   unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < OUTSIDE_TEMP_HISTORY_SIZE; i++) {
@@ -2277,14 +2295,14 @@ String serializeOutsideTempHistory() {
     }
   }
   String output;
-  serializeJson(outsideTempJsonDoc, output);
+  serializeJson(serializeJsonDoc, output);
   return output;
 }
 
 String serializeHourlyFuelHistory() {
-  DynamicJsonDocument fuelJsonDoc(8192); // Adjust size as necessary
-  JsonArray fuelArray = fuelJsonDoc.createNestedArray("hourlyFuelHistory");
-  JsonArray timeArray = fuelJsonDoc.createNestedArray("hourlyFuelTimestamps");
+  serializeJsonDoc.clear();
+  JsonArray fuelArray = serializeJsonDoc.createNestedArray("hourlyFuelHistory");
+  JsonArray timeArray = serializeJsonDoc.createNestedArray("hourlyFuelTimestamps");
 
   unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < HOURLY_FUEL_HISTORY_SIZE; i++) {
@@ -2294,17 +2312,17 @@ String serializeHourlyFuelHistory() {
       timeArray.add(hourlyFuelTimestamps[realIndex]); // Use absolute epoch timestamp
     }
   }
-  fuelJsonDoc["hourlyFuelAccumulator"] = hourlyFuelAccumulator; // Current hour’s running total
+  serializeJsonDoc["hourlyFuelAccumulator"] = hourlyFuelAccumulator; // Current hour’s running total
 
   String output;
-  serializeJson(fuelJsonDoc, output);
+  serializeJson(serializeJsonDoc, output);
   return output;
 }
 
 String serializeWattHourHistory() {
-  DynamicJsonDocument wattHourJsonDoc(8192); // Adjust size as necessary
-  JsonArray wattHourArray = wattHourJsonDoc.createNestedArray("wattHourHistory");
-  JsonArray timeArray = wattHourJsonDoc.createNestedArray("wattHourTimestamps");
+  serializeJsonDoc.clear();
+  JsonArray wattHourArray = serializeJsonDoc.createNestedArray("wattHourHistory");
+  JsonArray timeArray = serializeJsonDoc.createNestedArray("wattHourTimestamps");
 
   unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < WATT_HOUR_HISTORY_SIZE; i++) {
@@ -2314,17 +2332,17 @@ String serializeWattHourHistory() {
       timeArray.add(wattHourTimestamps[realIndex]); // Use absolute epoch timestamp
     }
   }
-  wattHourJsonDoc["wattHourAccumulator"] = wattHourAccumulator; // Current hour’s running total
+  serializeJsonDoc["wattHourAccumulator"] = wattHourAccumulator; // Current hour’s running total
 
   String output;
-  serializeJson(wattHourJsonDoc, output);
+  serializeJson(serializeJsonDoc, output);
   return output;
 }
 
 String serializeAmpsHistory() {
-  DynamicJsonDocument ampsJsonDoc(8192); // Adjust size as necessary
-  JsonArray ampsArray = ampsJsonDoc.createNestedArray("ampsHistory");
-  JsonArray timeArray = ampsJsonDoc.createNestedArray("timestamps");
+  serializeJsonDoc.clear();
+  JsonArray ampsArray = serializeJsonDoc.createNestedArray("ampsHistory");
+  JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
 
   unsigned long currentTime = timeClient.getEpochTime();
   for (int i = 0; i < AMPS_HISTORY_SIZE; i++) {
@@ -2335,7 +2353,7 @@ String serializeAmpsHistory() {
     }
   }
   String output;
-  serializeJson(ampsJsonDoc, output);
+  serializeJson(serializeJsonDoc, output);
   return output;
 }
 
