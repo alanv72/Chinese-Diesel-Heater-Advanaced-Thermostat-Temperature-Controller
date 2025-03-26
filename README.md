@@ -1,3 +1,12 @@
+Major functionality added with MQTT pub/sub to HA/MQTT over cloudfared WSS. Codebase requires expansion of app partition.
+Added https://github.com/theelims/PsychicMqttClient/tree/main for support of WSS with TLS on ESP32. Note bugfix https://github.com/theelims/PsychicMqttClient/issues/14
+
+add additional hosts to cloudflared in HA
+- hostname: yourdomain.com
+  service: http://core-mosquitto:1884
+
+![image](https://github.com/user-attachments/assets/41b4e2ca-84e0-4df5-8e6b-c3c2281a4589)
+
 Added some error handling and frontend alerts. Disabled control when coms are down.
 
 Added rename fuciontality. Set default name to heater-therm.
