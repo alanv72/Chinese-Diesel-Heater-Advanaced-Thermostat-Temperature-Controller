@@ -80,8 +80,8 @@ bool wdtTimeoutOccurred = false;
 // Optional: Counter for total WDT timeouts since boot
 unsigned int wdtTimeoutCount = 0;
 
-static DynamicJsonDocument jsonDoc(24576);
-static  DynamicJsonDocument serializeJsonDoc(8192); // Adjust size as necessary
+// static DynamicJsonDocument jsonDoc(24576);
+static  DynamicJsonDocument serializeJsonDoc(6144); // Adjust size as necessary
 
 ESP32SoftwareSerial sOne(HEATER_PIN);
 
@@ -123,7 +123,7 @@ String mqtt_topic_fan_speed;
 String mqtt_topic_control_mode;
 String mqtt_topic_shutdown;
 String mqtt_topic_turn_on;
-TimerHandle_t mqttReconnectTimer;
+// TimerHandle_t mqttReconnectTimer;
 
 WiFiClientSecure wifiClient;
 PsychicMqttClient mqttClient;
@@ -583,6 +583,7 @@ void connectToWiFi() {
     timeClient.begin();
     unsigned long epochTime = timeClient.getEpochTime();
     connectedToAnyNetwork = true;
+    mqttClient.connect();
     if (!MDNS.begin(currentBLEName.c_str())) {
       Serial.println("Error setting up MDNS responder!");
     } else {
@@ -599,7 +600,7 @@ void connectToWiFi() {
 void checkWiFiConnection() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi disconnected. Attempting reconnection...");
-    xTimerStop(mqttReconnectTimer, 0);
+    mqttClient.disconnect();
     server.end();
     MDNS.end();
     connectToWiFi();
@@ -836,9 +837,9 @@ void wifiReconnectCallback(TimerHandle_t xTimer) {
   checkWiFiConnection();
 }
 
-void mqttReconnectCallback(TimerHandle_t xTimer) {
-  connectToMqtt();
-}
+// void mqttReconnectCallback(TimerHandle_t xTimer) {
+//   connectToMqtt();
+// }
 
 void connectToMqtt() {
   Serial.println("Connecting to MQTT...");
@@ -1026,9 +1027,6 @@ void onMqttConnect(bool sessionPresent) {
 
 void onMqttDisconnect(bool sessionPresent) {
   Serial.println("Disconnected from MQTT");
-  if (WiFi.isConnected() && mqttReconnectTimer != NULL && !xTimerIsTimerActive(mqttReconnectTimer)) {
-    xTimerStart(mqttReconnectTimer, 0);
-  }
 }
 
 void setup() {
@@ -1178,8 +1176,8 @@ void setup() {
 
   // Initialize timers
   wifiReconnectTimer = xTimerCreate("wifiReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, wifiReconnectCallback);
-  mqttReconnectTimer = xTimerCreate("mqttReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, mqttReconnectCallback);
-  if (wifiReconnectTimer == NULL || mqttReconnectTimer == NULL) {
+  // mqttReconnectTimer = xTimerCreate("mqttReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, mqttReconnectCallback);
+  if (wifiReconnectTimer == NULL) {
     Serial.println("Failed to create timers");
     while (1);
   }
@@ -1212,8 +1210,9 @@ void setup() {
   mqttClient.setClientId(mqtt_client_id.c_str());
   mqttClient.setCredentials(mqtt_user, mqtt_password);
   mqttClient.setWill(mqtt_topic_heater_updates.c_str(), 1, true, "offline");
-  mqttClient.setBufferSize(4096); // Match FullyFeatured example
+  // mqttClient.setBufferSize(4096); // Match FullyFeatured example
   mqttClient.setKeepAlive(60);
+  mqttClient.setAutoReconnect(true);
 
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
@@ -2303,7 +2302,9 @@ void loop() {
       lastSave = millis();
     }
     
-    jsonDoc.clear();
+    // Define jsonDoc locally as StaticJsonDocument
+    StaticJsonDocument<26624> jsonDoc;
+    // jsonDoc.clear();
     jsonDoc["bleName"] = currentBLEName;
     jsonDoc["currentTemp"] = (currentTemperature == -200.0f) ? 0 : round(celsiusToFahrenheit(currentTemperature));
     jsonDoc["setTemp"] = round(celsiusToFahrenheit(setTemperature));
@@ -2353,13 +2354,13 @@ void loop() {
     jsonDoc["voltagegood"] = voltagegood;
     jsonDoc["ductfandelay"] = max(0UL, (unsigned long)(ductfandelay - millis()) / 1000UL); // Overflow-safe
     jsonDoc["wallfandelay"] = max(0UL, (unsigned long)(wallfandelay - millis()) / 1000UL); // Overflow-safe
-    jsonDoc["tempHistory"] = serializeTempHistory();
-    jsonDoc["outsideTempHistory"] = serializeOutsideTempHistory(); // Add new history
-    jsonDoc["voltageHistory"] = serializeVoltageHistory();
-    jsonDoc["pumpHzHistory"] = serializePumpHzHistory();
-    jsonDoc["hourlyFuelHistory"] = serializeHourlyFuelHistory(); // Simplified inclusion
-    jsonDoc["wattHourHistory"] = serializeWattHourHistory();
-    jsonDoc["ampsHistory"] = serializeAmpsHistory(); // Add amps history for plotting
+    // jsonDoc["tempHistory"] = serializeTempHistory();
+    // jsonDoc["outsideTempHistory"] = serializeOutsideTempHistory(); // Add new history
+    // jsonDoc["voltageHistory"] = serializeVoltageHistory();
+    // jsonDoc["pumpHzHistory"] = serializePumpHzHistory();
+    // jsonDoc["hourlyFuelHistory"] = serializeHourlyFuelHistory(); // Simplified inclusion
+    // jsonDoc["wattHourHistory"] = serializeWattHourHistory();
+    // jsonDoc["ampsHistory"] = serializeAmpsHistory(); // Add amps history for plotting
     jsonDoc["message"] = message;
     jsonDoc["serialEstablished"] = serialEstablished;
     jsonDoc["serialActive"] = serialActive;
@@ -2375,6 +2376,25 @@ void loop() {
     jsonDoc["fragmentationWarning"] = latestMemoryStats.fragmentationWarning;
     jsonDoc["wdtTimeoutOccurred"] = wdtTimeoutOccurred;
     jsonDoc["wdtTimeoutCount"] = wdtTimeoutCount;
+
+    // History fields (split across updates to reduce peak memory usage)
+    static int historyCounter = 0;
+    if (historyCounter % 12 == 0) { // Every 60 seconds (12 * 5s)
+      int phase = (historyCounter / 12) % 4; // 4 phases
+      if (phase == 0) {
+        jsonDoc["tempHistory"] = serializeTempHistory();
+        jsonDoc["outsideTempHistory"] = serializeOutsideTempHistory();
+      } else if (phase == 1) {
+        jsonDoc["voltageHistory"] = serializeVoltageHistory();
+        jsonDoc["pumpHzHistory"] = serializePumpHzHistory();
+      } else if (phase == 2) {
+        jsonDoc["hourlyFuelHistory"] = serializeHourlyFuelHistory();
+        jsonDoc["wattHourHistory"] = serializeWattHourHistory();
+      } else if (phase == 3) {
+        jsonDoc["ampsHistory"] = serializeAmpsHistory();
+      }
+    }
+    historyCounter++;
 
     String jsonString;
     serializeJson(jsonDoc, jsonString);
@@ -2397,6 +2417,8 @@ void loop() {
     }  else {
       if (DEBUG) Serial.println("MQTT not connected, skipping publish");
     }
+    yield();
+    esp_task_wdt_reset();
   }
 
   // Memory stats every 60s
@@ -2405,7 +2427,7 @@ void loop() {
     getMemoryStats();
   }
 
-  if ((unsigned long)(millis() - lastWeatherUpdate) >= WEATHER_UPDATE_INTERVAL) {
+  if (eventen && (unsigned long)(millis() - lastWeatherUpdate) >= WEATHER_UPDATE_INTERVAL) {
     updateWeatherData();
   }
 }
