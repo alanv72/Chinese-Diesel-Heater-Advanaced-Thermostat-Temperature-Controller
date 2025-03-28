@@ -81,7 +81,7 @@ bool wdtTimeoutOccurred = false;
 unsigned int wdtTimeoutCount = 0;
 
 // static DynamicJsonDocument jsonDoc(24576);
-static  DynamicJsonDocument serializeJsonDoc(6144); // Adjust size as necessary
+// static  DynamicJsonDocument serializeJsonDoc(6144); // Adjust size as necessary
 
 ESP32SoftwareSerial sOne(HEATER_PIN);
 
@@ -107,7 +107,9 @@ unsigned long bootTime = millis();
 unsigned long lastMillis = 0;
 unsigned long overflowCount = 0;
 unsigned long long uptime = 0; // Changed to unsigned long long
-unsigned long lastMemoryCheckTime = 0;
+unsigned long lastMemoryCheckTime = 300100;
+unsigned long lastJsonCheckTime = 300100;
+unsigned long lastHistEventTime = 60100;
 unsigned int serialinterruptcount = 0;
 
 //default name
@@ -833,6 +835,120 @@ void cleanCorruptedHistoryFiles() {
   Serial.println("Finished checking history files");
 }
 
+StaticJsonDocument<6144>& serializeTempHistory() {
+  static StaticJsonDocument<6144> doc;
+  doc.clear();
+  JsonArray tempArray = doc.createNestedArray("tempHistory");
+  JsonArray timeArray = doc.createNestedArray("timestamps");
+  unsigned long currentTime = timeClient.getEpochTime();
+  for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
+    int realIndex = (tempIndex + i) % TEMP_HISTORY_SIZE;
+    if (tempHistory[realIndex] > -100 && (currentTime - tempTimestamps[realIndex]) <= 43200) {
+      tempArray.add(round(celsiusToFahrenheit(tempHistory[realIndex])));
+      timeArray.add(tempTimestamps[realIndex]);
+    }
+  }
+  return doc;
+}
+
+StaticJsonDocument<6144>& serializeVoltageHistory() {
+  static StaticJsonDocument<6144> doc;
+  doc.clear();
+  JsonArray voltageArray = doc.createNestedArray("voltageHistory");
+  JsonArray timeArray = doc.createNestedArray("timestamps");
+  unsigned long currentTime = timeClient.getEpochTime();
+  for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
+    int realIndex = (voltageIndex + i) % VOLTAGE_HISTORY_SIZE;
+    if (voltageHistory[realIndex] >= 0 && (currentTime - voltageTimestamps[realIndex]) <= 43200) {
+      voltageArray.add(voltageHistory[realIndex]);
+      timeArray.add(voltageTimestamps[realIndex]);
+    }
+  }
+  return doc;
+}
+
+StaticJsonDocument<6144>& serializePumpHzHistory() {
+  static StaticJsonDocument<6144> doc;
+  doc.clear();
+  JsonArray pumpHzArray = doc.createNestedArray("pumpHzHistory");
+  JsonArray timeArray = doc.createNestedArray("timestamps");
+  unsigned long currentTime = timeClient.getEpochTime();
+  for (int i = 0; i < PUMP_HZ_HISTORY_SIZE; i++) {
+    int realIndex = (pumpHzIndex + i) % PUMP_HZ_HISTORY_SIZE;
+    if (pumpHzHistory[realIndex] >= 0 && (currentTime - pumpHzTimestamps[realIndex]) <= 43200) {
+      pumpHzArray.add(pumpHzHistory[realIndex]);
+      timeArray.add(pumpHzTimestamps[realIndex]);
+    }
+  }
+  return doc;
+}
+
+StaticJsonDocument<6144>& serializeOutsideTempHistory() {
+  static StaticJsonDocument<6144> doc;
+  doc.clear();
+  JsonArray outsideTempArray = doc.createNestedArray("outsideTempHistory");
+  JsonArray timeArray = doc.createNestedArray("timestamps");
+  unsigned long currentTime = timeClient.getEpochTime();
+  for (int i = 0; i < OUTSIDE_TEMP_HISTORY_SIZE; i++) {
+    int realIndex = (outsideTempIndex + i) % OUTSIDE_TEMP_HISTORY_SIZE;
+    if (!isnan(outsideTempHistory[realIndex]) && (currentTime - outsideTempTimestamps[realIndex]) <= 43200) {
+      outsideTempArray.add(outsideTempHistory[realIndex]);
+      timeArray.add(outsideTempTimestamps[realIndex]);
+    }
+  }
+  return doc;
+}
+
+StaticJsonDocument<2048>& serializeHourlyFuelHistory() {
+  static StaticJsonDocument<2048> doc;
+  doc.clear();
+  JsonArray fuelArray = doc.createNestedArray("hourlyFuelHistory");
+  JsonArray timeArray = doc.createNestedArray("hourlyFuelTimestamps");
+  unsigned long currentTime = timeClient.getEpochTime();
+  for (int i = 0; i < HOURLY_FUEL_HISTORY_SIZE; i++) {
+    int realIndex = (hourlyFuelIndex - HOURLY_FUEL_HISTORY_SIZE + i + HOURLY_FUEL_HISTORY_SIZE) % HOURLY_FUEL_HISTORY_SIZE;
+    if (hourlyFuelTimestamps[realIndex] > 0 && (currentTime - hourlyFuelTimestamps[realIndex]) <= 86400) {
+      fuelArray.add(hourlyFuelHistory[realIndex]);
+      timeArray.add(hourlyFuelTimestamps[realIndex]);
+    }
+  }
+  doc["hourlyFuelAccumulator"] = hourlyFuelAccumulator;
+  return doc;
+}
+
+StaticJsonDocument<2048>& serializeWattHourHistory() {
+  static StaticJsonDocument<2048> doc;
+  doc.clear();
+  JsonArray wattHourArray = doc.createNestedArray("wattHourHistory");
+  JsonArray timeArray = doc.createNestedArray("wattHourTimestamps");
+  unsigned long currentTime = timeClient.getEpochTime();
+  for (int i = 0; i < WATT_HOUR_HISTORY_SIZE; i++) {
+    int realIndex = (wattHourIndex - WATT_HOUR_HISTORY_SIZE + i + WATT_HOUR_HISTORY_SIZE) % WATT_HOUR_HISTORY_SIZE;
+    if (wattHourTimestamps[realIndex] > 0 && (currentTime - wattHourTimestamps[realIndex]) <= 86400) {
+      wattHourArray.add(wattHourHistory[realIndex]);
+      timeArray.add(wattHourTimestamps[realIndex]);
+    }
+  }
+  doc["wattHourAccumulator"] = wattHourAccumulator;
+  return doc;
+}
+
+StaticJsonDocument<6144>& serializeAmpsHistory() {
+  static StaticJsonDocument<6144> doc;
+  doc.clear();
+  JsonArray ampsArray = doc.createNestedArray("ampsHistory");
+  JsonArray timeArray = doc.createNestedArray("timestamps");
+  unsigned long currentTime = timeClient.getEpochTime();
+  for (int i = 0; i < AMPS_HISTORY_SIZE; i++) {
+    int realIndex = (ampsIndex + i) % AMPS_HISTORY_SIZE;
+    if (!isnan(ampsHistory[realIndex]) && (currentTime - ampsTimestamps[realIndex]) <= 43200) {
+      ampsArray.add(ampsHistory[realIndex]);
+      timeArray.add(ampsTimestamps[realIndex]);
+    }
+  }
+  return doc;
+}
+
 void wifiReconnectCallback(TimerHandle_t xTimer) {
   checkWiFiConnection();
 }
@@ -963,6 +1079,7 @@ void onMqttConnect(bool sessionPresent) {
     String messageTemp(payload);
     Serial.printf("MQTT Message on [%s]: '%s'\n", topic, messageTemp.c_str());
     if (messageTemp == "heat") {
+      frostModeEnabled = false;
       controlEnable = 1;
       cshut = 0;
     } else if (messageTemp == "auto") {
@@ -1030,6 +1147,7 @@ void onMqttDisconnect(bool sessionPresent) {
 }
 
 void setup() {
+  Serial.println("-------------- Setup Start ------------------");
   esp_task_wdt_deinit();  // wdt is initialized by default. disable and reconfig
   esp_task_wdt_config_t wdt_config = {
     .timeout_ms = 30000,                             // 30s timeout
@@ -1038,7 +1156,7 @@ void setup() {
   };
   esp_task_wdt_init(&wdt_config);
   esp_task_wdt_add(NULL);
- 
+  
   for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
     tempHistory[i] = -200.0; // Initialize with an out-of-range value
     tempTimestamps[i] = 0;
@@ -1142,6 +1260,34 @@ void setup() {
     }
   }
 
+  // Initialize timers
+  wifiReconnectTimer = xTimerCreate("wifiReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, wifiReconnectCallback);
+  // mqttReconnectTimer = xTimerCreate("mqttReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, mqttReconnectCallback);
+  if (wifiReconnectTimer == NULL) {
+    Serial.println("Failed to create timers");
+    while (1);
+  }
+
+  // Construct MQTT client ID and topics
+  mqtt_client_id = currentBLEName + "-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+  mqtt_topic_heater_updates = currentBLEName + "/updates";
+  mqtt_topic_set_temp = currentBLEName + "/set_temp";
+  mqtt_topic_fan_speed = currentBLEName + "/set_fan_speed";
+  mqtt_topic_control_mode = currentBLEName + "/set_fan_control_mode";
+  mqtt_topic_shutdown = currentBLEName + "/shutdown";
+  mqtt_topic_turn_on = currentBLEName + "/turn_on";
+  
+  connectToWiFi();
+  delay(1000); // Delay for wifi stabilization
+  timeClient.update();
+  unsigned long epochTime = timeClient.getEpochTime();
+  Serial.println(WiFi.localIP());
+  delay(1000); // Delay for NTP sync
+  updateWeatherData();
+  delay(1000); // Delay for weathersync
+  esp_task_wdt_reset();
+
+  //Mount SPIFFS and load data after wifi sets EPOCH time
   Serial.println("Mounting SPIFFS...");
   if (!SPIFFS.begin(false)) {
     Serial.println("SPIFFS mount failed without format, attempting format...");
@@ -1174,34 +1320,6 @@ void setup() {
   getMemoryStats();
   esp_task_wdt_reset();
 
-  // Initialize timers
-  wifiReconnectTimer = xTimerCreate("wifiReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, wifiReconnectCallback);
-  // mqttReconnectTimer = xTimerCreate("mqttReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, mqttReconnectCallback);
-  if (wifiReconnectTimer == NULL) {
-    Serial.println("Failed to create timers");
-    while (1);
-  }
-
-  // Construct MQTT client ID and topics
-  mqtt_client_id = currentBLEName + "-" + String((uint32_t)ESP.getEfuseMac(), HEX);
-  mqtt_topic_heater_updates = currentBLEName + "/updates";
-  mqtt_topic_set_temp = currentBLEName + "/set_temp";
-  mqtt_topic_fan_speed = currentBLEName + "/set_fan_speed";
-  mqtt_topic_control_mode = currentBLEName + "/set_fan_control_mode";
-  mqtt_topic_shutdown = currentBLEName + "/shutdown";
-  mqtt_topic_turn_on = currentBLEName + "/turn_on";
-  
-  connectToWiFi();
-  delay(1000); // Delay for wifi stabilization
-  timeClient.update();
-  unsigned long epochTime = timeClient.getEpochTime();
-  Serial.print("Manage at http://" + currentBLEName + ".local or http://");
-  Serial.println(WiFi.localIP());
-  delay(1000); // Delay for NTP sync
-  updateWeatherData();
-  delay(1000); // Delay for weathersync
-  esp_task_wdt_reset();
-
   // Initialize MQTT over WebSocket with TLS
   // MQTT setup
   mqttClient.setServer(mqtt_server); // from secrets.h
@@ -1210,7 +1328,7 @@ void setup() {
   mqttClient.setClientId(mqtt_client_id.c_str());
   mqttClient.setCredentials(mqtt_user, mqtt_password);
   mqttClient.setWill(mqtt_topic_heater_updates.c_str(), 1, true, "offline");
-  // mqttClient.setBufferSize(4096); // Match FullyFeatured example
+  mqttClient.setBufferSize(2048); // Match FullyFeatured example
   mqttClient.setKeepAlive(60);
   mqttClient.setAutoReconnect(true);
 
@@ -1624,6 +1742,10 @@ void setup() {
   ElegantOTA.onStart([]() {
     Serial.println("OTA Update Start");
     eventen = false;
+    if (mqttClient.connected()) {
+      Serial.println("Disconnect MQTT for OTA");
+      mqttClient.disconnect();
+    }
     // Stop listening on sOne if necessary
     pinMode(HEATER_PIN, INPUT_PULLDOWN);  // Keep the heater pin low during OTA update
   });
@@ -1631,6 +1753,8 @@ void setup() {
   ElegantOTA.onEnd([](bool success) {
     pinMode(HEATER_PIN, INPUT);  // Assuming it should go back to being an input
     eventen = true;
+    Serial.println("Reconnect MQTT after OTA");
+    mqttClient.connect();
     saveHistoryToSPIFFS(0);
     Serial.println("OTA Update End");
     Serial.print("Update ");
@@ -1651,6 +1775,11 @@ void setup() {
   server.addHandler(&events);
   server.begin();
   Serial.println("HTTP server started");
+  Serial.print("Manage at http://" + currentBLEName + ".local or http://");
+  Serial.println("Memory after setup");
+  getMemoryStats();
+  Serial.println("-------------- Setup End ------------------\n");
+  delay(1000);
 }
 
 void loop() {
@@ -2158,7 +2287,7 @@ void loop() {
   float remainingRuntimeHours = NAN; // Default to NAN
   // updates calcs and accumulators if serial is active every 2s
   static unsigned long lastEvent = 0;
-  if ((unsigned long)(millis() - lastEvent) >= 2000 && serialActive) { // Overflow-safe
+  if (eventen && (unsigned long)(millis() - lastEvent) >= 2000 && serialActive) { // Overflow-safe
     lastEvent = millis();
     if (heaterStateNum >= 2 && heaterStateNum <= 5) heaterRunTime += 2;
         float cycleFuelGallons = 0.0; // Default to zero when pump is off
@@ -2226,7 +2355,7 @@ void loop() {
   
   // JSON event updates 2s
   static unsigned long lastJEvent = 0;
-  if ((unsigned long)(millis() - lastJEvent) >= 2000) { // Overflow-safe
+  if (eventen && (unsigned long)(millis() - lastJEvent) >= 2000) { // Overflow-safe
     lastJEvent = millis();
 
         // History update every 5min
@@ -2279,7 +2408,7 @@ void loop() {
     }
 
     static unsigned long lastSave = 0;
-    if ((unsigned long)(millis() - lastSave) >= 30000) { // Overflow-safe
+    if ((unsigned long)(millis() - lastSave) >= 300000) { // Overflow-safe
       preferences.putFloat("fuelConsumption", fuelConsumption);
       preferences.putFloat("tankRuntime", tankRuntime);
       preferences.putFloat("tankConsumption", tankConsumption);
@@ -2302,8 +2431,10 @@ void loop() {
       lastSave = millis();
     }
     
+    yield();
+
     // Define jsonDoc locally as StaticJsonDocument
-    StaticJsonDocument<26624> jsonDoc;
+    StaticJsonDocument<2048> jsonDoc;
     // jsonDoc.clear();
     jsonDoc["bleName"] = currentBLEName;
     jsonDoc["currentTemp"] = (currentTemperature == -200.0f) ? 0 : round(celsiusToFahrenheit(currentTemperature));
@@ -2316,9 +2447,9 @@ void loop() {
     jsonDoc["errornum"] = heaterErrorNum;
     jsonDoc["heaterHourMeter"] = heaterRunTime / 3600.0;
     jsonDoc["uptime"] = uptime / 1000;
-//    jsonDoc["time"] = timeClient.getFormattedTime();
+    // jsonDoc["time"] = timeClient.getFormattedTime();
     jsonDoc["epochTime"] = epochTime;
-//    jsonDoc["date"] = getFormattedDate();
+    // jsonDoc["date"] = getFormattedDate();
     jsonDoc["fuelConsumedLifetime"] = fuelConsumption * ML_TO_GALLON;
     jsonDoc["fuelConsumedTank"] = tankConsumption * ML_TO_GALLON;
     jsonDoc["fuelUsedPercentage"] = (tankConsumption * ML_TO_GALLON) / tankSizeGallons;
@@ -2354,13 +2485,6 @@ void loop() {
     jsonDoc["voltagegood"] = voltagegood;
     jsonDoc["ductfandelay"] = max(0UL, (unsigned long)(ductfandelay - millis()) / 1000UL); // Overflow-safe
     jsonDoc["wallfandelay"] = max(0UL, (unsigned long)(wallfandelay - millis()) / 1000UL); // Overflow-safe
-    // jsonDoc["tempHistory"] = serializeTempHistory();
-    // jsonDoc["outsideTempHistory"] = serializeOutsideTempHistory(); // Add new history
-    // jsonDoc["voltageHistory"] = serializeVoltageHistory();
-    // jsonDoc["pumpHzHistory"] = serializePumpHzHistory();
-    // jsonDoc["hourlyFuelHistory"] = serializeHourlyFuelHistory(); // Simplified inclusion
-    // jsonDoc["wattHourHistory"] = serializeWattHourHistory();
-    // jsonDoc["ampsHistory"] = serializeAmpsHistory(); // Add amps history for plotting
     jsonDoc["message"] = message;
     jsonDoc["serialEstablished"] = serialEstablished;
     jsonDoc["serialActive"] = serialActive;
@@ -2376,53 +2500,134 @@ void loop() {
     jsonDoc["fragmentationWarning"] = latestMemoryStats.fragmentationWarning;
     jsonDoc["wdtTimeoutOccurred"] = wdtTimeoutOccurred;
     jsonDoc["wdtTimeoutCount"] = wdtTimeoutCount;
+    // jsonDoc["tempHistory"] = serializeTempHistory();
+    // jsonDoc["outsideTempHistory"] = serializeOutsideTempHistory(); // Add new history
+    // jsonDoc["voltageHistory"] = serializeVoltageHistory();
+    // jsonDoc["pumpHzHistory"] = serializePumpHzHistory();
+    // jsonDoc["hourlyFuelHistory"] = serializeHourlyFuelHistory(); // Simplified inclusion
+    // jsonDoc["wattHourHistory"] = serializeWattHourHistory();
+    // jsonDoc["ampsHistory"] = serializeAmpsHistory(); // Add amps history for plotting
 
-    // History fields (split across updates to reduce peak memory usage)
-    static int historyCounter = 0;
-    if (historyCounter % 12 == 0) { // Every 60 seconds (12 * 5s)
-      int phase = (historyCounter / 12) % 4; // 4 phases
-      if (phase == 0) {
-        jsonDoc["tempHistory"] = serializeTempHistory();
-        jsonDoc["outsideTempHistory"] = serializeOutsideTempHistory();
-      } else if (phase == 1) {
-        jsonDoc["voltageHistory"] = serializeVoltageHistory();
-        jsonDoc["pumpHzHistory"] = serializePumpHzHistory();
-      } else if (phase == 2) {
-        jsonDoc["hourlyFuelHistory"] = serializeHourlyFuelHistory();
-        jsonDoc["wattHourHistory"] = serializeWattHourHistory();
-      } else if (phase == 3) {
-        jsonDoc["ampsHistory"] = serializeAmpsHistory();
-      }
-    }
-    historyCounter++;
+    // Stream JSON into jsonBuffer, leaving space for SSE header
+    static char jsonBuffer[2048];
+    const char* sseHeader = "event: heater_update\ndata: ";
+    const char* sseFooter = "\n\n";
+    size_t headerLen = strlen(sseHeader); // ~25 bytes
+    size_t footerLen = strlen(sseFooter); // 2 bytes
+    size_t maxJsonLen = sizeof(jsonBuffer) + headerLen + footerLen;
 
-    String jsonString;
-    serializeJson(jsonDoc, jsonString);
-    String escapedJsonString = "";
-    for (int i = 0; i < jsonString.length(); i++) {
-      if (jsonString[i] == '\n') escapedJsonString += "\\n";
-      else if (jsonString[i] == '\r') escapedJsonString += "\\r";
-      else escapedJsonString += jsonString[i];
+    //Clear buffer
+    memset(jsonBuffer, 0, sizeof(jsonBuffer));
+    // Write JSON at an offset
+    size_t jsonLen = serializeJson(jsonDoc, jsonBuffer + headerLen, maxJsonLen);
+    if (jsonLen == 0) {
+      Serial.println("JSON serialization failed or buffer too small");
+      return;
     }
+
+    // Prepend SSE header and append footer
+    memcpy(jsonBuffer, sseHeader, headerLen);
+    memcpy(jsonBuffer + headerLen + jsonLen, sseFooter, footerLen);
+    size_t totalLen = headerLen + jsonLen + footerLen;
+
+    // Report size every 5min
+    if ((unsigned long)(millis() - lastJsonCheckTime) >= 300000) {
+      lastJsonCheckTime = millis();
+      Serial.printf("Serialized JSON length: %d bytes, Total SSE length: %d bytes\n", jsonLen, totalLen);
+      Serial.printf("Free Heap: %d, Min Free Heap: %d\n", ESP.getFreeHeap(), ESP.getMinFreeHeap());
+    }
+
+    // Send main event
     if (eventen) {
-      String eventString = "event: heater_update\ndata: " + escapedJsonString + "\n\n";
-      events.send(eventString.c_str());
+      events.send(jsonBuffer);
     }
-    // Publish to MQTT
+
+    // MQTT publish (main event, no history)
     if (eventen && mqttClient.connected()) {
-      mqttClient.publish(mqtt_topic_heater_updates.c_str(), 1, true, jsonString.c_str());
+      memmove(jsonBuffer, jsonBuffer + headerLen, jsonLen);
+      jsonBuffer[jsonLen] = '\0';
+      mqttClient.publish(mqtt_topic_heater_updates.c_str(), 1, true, jsonBuffer);
       if (DEBUG) Serial.println("Published heater_updates to MQTT");
     } else if (!eventen && DEBUG) {
-        Serial.println("OTA update in progress");
-    }  else {
-      if (DEBUG) Serial.println("MQTT not connected, skipping publish");
+      Serial.println("OTA update in progress");
+    } else if (DEBUG) {
+      Serial.println("MQTT not connected, skipping publish");
     }
+
+    if (eventen && (unsigned long)(millis() - lastHistEventTime) >= 60000) {
+      lastHistEventTime = millis();
+
+      // History buffer (larger for arrays)
+      static char histJsonBuffer[6256];
+      maxJsonLen = sizeof(histJsonBuffer) + headerLen + footerLen;
+
+      struct HistoryEvent {
+        const char* eventName;
+        const char* mqttTopic;
+        StaticJsonDocument<6144>& (*serializeFunc12h)();
+        StaticJsonDocument<2048>& (*serializeFunc24h)();
+      };
+
+      HistoryEvent historyEvents[] = {
+        {"temp_history_update", "heater/temp_history", serializeTempHistory, nullptr},
+        {"outside_temp_history_update", "heater/outside_temp_history", serializeOutsideTempHistory, nullptr},
+        {"voltage_history_update", "heater/voltage_history", serializeVoltageHistory, nullptr},
+        {"pump_hz_history_update", "heater/pump_hz_history", serializePumpHzHistory, nullptr},
+        {"hourly_fuel_history_update", "heater/hourly_fuel_history", nullptr, serializeHourlyFuelHistory},
+        {"watt_hour_history_update", "heater/watt_hour_history", nullptr, serializeWattHourHistory},
+        {"amps_history_update", "heater/amps_history", serializeAmpsHistory, nullptr}
+      };
+
+      for (const auto& hist : historyEvents) {
+        StaticJsonDocument<6144> histDoc12h;
+        StaticJsonDocument<2048> histDoc24h;
+        size_t histJsonLen;
+
+        memset(histJsonBuffer, 0, sizeof(histJsonBuffer));
+        String header = String("event: ") + hist.eventName + "\ndata: ";
+        headerLen = header.length();
+
+        Serial.println("Sending " + String(hist.eventName) + ":");
+        
+        if (hist.serializeFunc12h) {
+          histDoc12h = hist.serializeFunc12h();
+          histDoc12h["type"] = hist.eventName;
+          histJsonLen = serializeJson(histDoc12h, histJsonBuffer + headerLen, maxJsonLen);
+        } else if (hist.serializeFunc24h) {
+          histDoc24h = hist.serializeFunc24h();
+          histDoc24h["type"] = hist.eventName;
+          histJsonLen = serializeJson(histDoc24h, histJsonBuffer + headerLen, maxJsonLen);
+        } else {
+          Serial.println("  No serialization function defined");
+          continue;
+        }
+
+        if (histJsonLen == 0) {
+          Serial.println("  History JSON serialization failed for " + String(hist.eventName));
+          continue;
+        }
+
+        memcpy(histJsonBuffer, header.c_str(), headerLen);
+        memcpy(histJsonBuffer + headerLen + histJsonLen, sseFooter, footerLen);
+        totalLen = headerLen + histJsonLen + footerLen;
+
+        // Serial.println(String(histJsonBuffer + headerLen)); // Log JSON payload
+        Serial.printf("Serialized History JSON length: %d bytes, Total SSE length: %d bytes\n", histJsonLen, totalLen);
+        Serial.printf("Free Heap: %d, Min Free Heap: %d\n", ESP.getFreeHeap(), ESP.getMinFreeHeap());
+
+        if (eventen) {
+          events.send(histJsonBuffer);
+        }
+
+      }
+    }
+
     yield();
     esp_task_wdt_reset();
   }
 
   // Memory stats every 60s
-  if ((unsigned long)(currentMillis - lastMemoryCheckTime) >= 60000) { // Overflow-safe
+  if ((unsigned long)(currentMillis - lastMemoryCheckTime) >= 300000) { // Overflow-safe
     lastMemoryCheckTime = currentMillis;
     getMemoryStats();
   }
@@ -2537,136 +2742,136 @@ void getMemoryStats() {
   }
 }
 
-String serializeTempHistory() {
-  serializeJsonDoc.clear();
-  JsonArray tempArray = serializeJsonDoc.createNestedArray("tempHistory");
-  JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
+// String serializeTempHistory() {
+//   StaticJsonDocument<4098> serializeJsonDoc;
+//   JsonArray tempArray = serializeJsonDoc.createNestedArray("tempHistory");
+//   JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
 
-  unsigned long currentTime = timeClient.getEpochTime();
-  for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
-    int realIndex = (tempIndex + i) % TEMP_HISTORY_SIZE; // Correct circular index
-    if (tempHistory[realIndex] > -100 && (currentTime - tempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
-      tempArray.add(round(celsiusToFahrenheit(tempHistory[realIndex])));
-      timeArray.add(tempTimestamps[realIndex]); // Use absolute epoch timestamp
-    }
-  }
-  String output;
-  serializeJson(serializeJsonDoc, output);
-  return output;
-}
+//   unsigned long currentTime = timeClient.getEpochTime();
+//   for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
+//     int realIndex = (tempIndex + i) % TEMP_HISTORY_SIZE; // Correct circular index
+//     if (tempHistory[realIndex] > -100 && (currentTime - tempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
+//       tempArray.add(round(celsiusToFahrenheit(tempHistory[realIndex])));
+//       timeArray.add(tempTimestamps[realIndex]); // Use absolute epoch timestamp
+//     }
+//   }
+//   String output;
+//   serializeJson(serializeJsonDoc, output);
+//   return output;
+// }
 
-String serializeVoltageHistory() {
-  serializeJsonDoc.clear();
-  JsonArray voltageArray = serializeJsonDoc.createNestedArray("voltageHistory");
-  JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
+// String serializeVoltageHistory() {
+//   StaticJsonDocument<4098> serializeJsonDoc;
+//   JsonArray voltageArray = serializeJsonDoc.createNestedArray("voltageHistory");
+//   JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
 
-  unsigned long currentTime = timeClient.getEpochTime();
-  for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
-    int realIndex = (voltageIndex + i) % VOLTAGE_HISTORY_SIZE;
-    if (voltageHistory[realIndex] >= 0 && (currentTime - voltageTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
-      voltageArray.add(voltageHistory[realIndex]);
-      timeArray.add(voltageTimestamps[realIndex]); // Use absolute epoch timestamp
-    }
-  }
-  String output;
-  serializeJson(serializeJsonDoc, output);
-  return output;
-}
+//   unsigned long currentTime = timeClient.getEpochTime();
+//   for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
+//     int realIndex = (voltageIndex + i) % VOLTAGE_HISTORY_SIZE;
+//     if (voltageHistory[realIndex] >= 0 && (currentTime - voltageTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
+//       voltageArray.add(voltageHistory[realIndex]);
+//       timeArray.add(voltageTimestamps[realIndex]); // Use absolute epoch timestamp
+//     }
+//   }
+//   String output;
+//   serializeJson(serializeJsonDoc, output);
+//   return output;
+// }
 
-String serializePumpHzHistory() {
-  serializeJsonDoc.clear();
-  JsonArray pumpHzArray = serializeJsonDoc.createNestedArray("pumpHzHistory");
-  JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
+// String serializePumpHzHistory() {
+//   StaticJsonDocument<4098> serializeJsonDoc;
+//   JsonArray pumpHzArray = serializeJsonDoc.createNestedArray("pumpHzHistory");
+//   JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
 
-  unsigned long currentTime = timeClient.getEpochTime();
-  for (int i = 0; i < PUMP_HZ_HISTORY_SIZE; i++) {
-    int realIndex = (pumpHzIndex + i) % PUMP_HZ_HISTORY_SIZE;
-    if (pumpHzHistory[realIndex] >= 0 && (currentTime - pumpHzTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
-      pumpHzArray.add(pumpHzHistory[realIndex]);
-      timeArray.add(pumpHzTimestamps[realIndex]); // Use absolute epoch timestamp
-    }
-  }
-  String output;
-  serializeJson(serializeJsonDoc, output);
-  return output;
-}
+//   unsigned long currentTime = timeClient.getEpochTime();
+//   for (int i = 0; i < PUMP_HZ_HISTORY_SIZE; i++) {
+//     int realIndex = (pumpHzIndex + i) % PUMP_HZ_HISTORY_SIZE;
+//     if (pumpHzHistory[realIndex] >= 0 && (currentTime - pumpHzTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
+//       pumpHzArray.add(pumpHzHistory[realIndex]);
+//       timeArray.add(pumpHzTimestamps[realIndex]); // Use absolute epoch timestamp
+//     }
+//   }
+//   String output;
+//   serializeJson(serializeJsonDoc, output);
+//   return output;
+// }
 
-// New serialization function for outdoor temperature
-String serializeOutsideTempHistory() {
-  serializeJsonDoc.clear();
-  JsonArray outsideTempArray = serializeJsonDoc.createNestedArray("outsideTempHistory");
-  JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
+// // New serialization function for outdoor temperature
+// String serializeOutsideTempHistory() {
+//   StaticJsonDocument<4098> serializeJsonDoc;
+//   JsonArray outsideTempArray = serializeJsonDoc.createNestedArray("outsideTempHistory");
+//   JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
 
-  unsigned long currentTime = timeClient.getEpochTime();
-  for (int i = 0; i < OUTSIDE_TEMP_HISTORY_SIZE; i++) {
-    int realIndex = (outsideTempIndex + i) % OUTSIDE_TEMP_HISTORY_SIZE;
-    if (!isnan(outsideTempHistory[realIndex]) && (currentTime - outsideTempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
-      outsideTempArray.add(outsideTempHistory[realIndex]); // Already in Fahrenheit
-      timeArray.add(outsideTempTimestamps[realIndex]); // Use absolute epoch timestamp
-    }
-  }
-  String output;
-  serializeJson(serializeJsonDoc, output);
-  return output;
-}
+//   unsigned long currentTime = timeClient.getEpochTime();
+//   for (int i = 0; i < OUTSIDE_TEMP_HISTORY_SIZE; i++) {
+//     int realIndex = (outsideTempIndex + i) % OUTSIDE_TEMP_HISTORY_SIZE;
+//     if (!isnan(outsideTempHistory[realIndex]) && (currentTime - outsideTempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
+//       outsideTempArray.add(outsideTempHistory[realIndex]); // Already in Fahrenheit
+//       timeArray.add(outsideTempTimestamps[realIndex]); // Use absolute epoch timestamp
+//     }
+//   }
+//   String output;
+//   serializeJson(serializeJsonDoc, output);
+//   return output;
+// }
 
-String serializeHourlyFuelHistory() {
-  serializeJsonDoc.clear();
-  JsonArray fuelArray = serializeJsonDoc.createNestedArray("hourlyFuelHistory");
-  JsonArray timeArray = serializeJsonDoc.createNestedArray("hourlyFuelTimestamps");
+// String serializeHourlyFuelHistory() {
+//   StaticJsonDocument<4098> serializeJsonDoc;
+//   JsonArray fuelArray = serializeJsonDoc.createNestedArray("hourlyFuelHistory");
+//   JsonArray timeArray = serializeJsonDoc.createNestedArray("hourlyFuelTimestamps");
 
-  unsigned long currentTime = timeClient.getEpochTime();
-  for (int i = 0; i < HOURLY_FUEL_HISTORY_SIZE; i++) {
-    int realIndex = (hourlyFuelIndex - HOURLY_FUEL_HISTORY_SIZE + i + HOURLY_FUEL_HISTORY_SIZE) % HOURLY_FUEL_HISTORY_SIZE;
-    if (hourlyFuelTimestamps[realIndex] > 0 && (currentTime - hourlyFuelTimestamps[realIndex]) <= 86400) { // 24 hours
-      fuelArray.add(hourlyFuelHistory[realIndex]);
-      timeArray.add(hourlyFuelTimestamps[realIndex]); // Use absolute epoch timestamp
-    }
-  }
-  serializeJsonDoc["hourlyFuelAccumulator"] = hourlyFuelAccumulator; // Current hour’s running total
+//   unsigned long currentTime = timeClient.getEpochTime();
+//   for (int i = 0; i < HOURLY_FUEL_HISTORY_SIZE; i++) {
+//     int realIndex = (hourlyFuelIndex - HOURLY_FUEL_HISTORY_SIZE + i + HOURLY_FUEL_HISTORY_SIZE) % HOURLY_FUEL_HISTORY_SIZE;
+//     if (hourlyFuelTimestamps[realIndex] > 0 && (currentTime - hourlyFuelTimestamps[realIndex]) <= 86400) { // 24 hours
+//       fuelArray.add(hourlyFuelHistory[realIndex]);
+//       timeArray.add(hourlyFuelTimestamps[realIndex]); // Use absolute epoch timestamp
+//     }
+//   }
+//   serializeJsonDoc["hourlyFuelAccumulator"] = hourlyFuelAccumulator; // Current hour’s running total
 
-  String output;
-  serializeJson(serializeJsonDoc, output);
-  return output;
-}
+//   String output;
+//   serializeJson(serializeJsonDoc, output);
+//   return output;
+// }
 
-String serializeWattHourHistory() {
-  serializeJsonDoc.clear();
-  JsonArray wattHourArray = serializeJsonDoc.createNestedArray("wattHourHistory");
-  JsonArray timeArray = serializeJsonDoc.createNestedArray("wattHourTimestamps");
+// String serializeWattHourHistory() {
+//   StaticJsonDocument<4098> serializeJsonDoc;
+//   JsonArray wattHourArray = serializeJsonDoc.createNestedArray("wattHourHistory");
+//   JsonArray timeArray = serializeJsonDoc.createNestedArray("wattHourTimestamps");
 
-  unsigned long currentTime = timeClient.getEpochTime();
-  for (int i = 0; i < WATT_HOUR_HISTORY_SIZE; i++) {
-    int realIndex = (wattHourIndex - WATT_HOUR_HISTORY_SIZE + i + WATT_HOUR_HISTORY_SIZE) % WATT_HOUR_HISTORY_SIZE;
-    if (wattHourTimestamps[realIndex] > 0 && (currentTime - wattHourTimestamps[realIndex]) <= 86400) { // 24 hours
-      wattHourArray.add(wattHourHistory[realIndex]);
-      timeArray.add(wattHourTimestamps[realIndex]); // Use absolute epoch timestamp
-    }
-  }
-  serializeJsonDoc["wattHourAccumulator"] = wattHourAccumulator; // Current hour’s running total
+//   unsigned long currentTime = timeClient.getEpochTime();
+//   for (int i = 0; i < WATT_HOUR_HISTORY_SIZE; i++) {
+//     int realIndex = (wattHourIndex - WATT_HOUR_HISTORY_SIZE + i + WATT_HOUR_HISTORY_SIZE) % WATT_HOUR_HISTORY_SIZE;
+//     if (wattHourTimestamps[realIndex] > 0 && (currentTime - wattHourTimestamps[realIndex]) <= 86400) { // 24 hours
+//       wattHourArray.add(wattHourHistory[realIndex]);
+//       timeArray.add(wattHourTimestamps[realIndex]); // Use absolute epoch timestamp
+//     }
+//   }
+//   serializeJsonDoc["wattHourAccumulator"] = wattHourAccumulator; // Current hour’s running total
 
-  String output;
-  serializeJson(serializeJsonDoc, output);
-  return output;
-}
+//   String output;
+//   serializeJson(serializeJsonDoc, output);
+//   return output;
+// }
 
-String serializeAmpsHistory() {
-  serializeJsonDoc.clear();
-  JsonArray ampsArray = serializeJsonDoc.createNestedArray("ampsHistory");
-  JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
+// String serializeAmpsHistory() {
+//   StaticJsonDocument<4098> serializeJsonDoc;
+//   JsonArray ampsArray = serializeJsonDoc.createNestedArray("ampsHistory");
+//   JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
 
-  unsigned long currentTime = timeClient.getEpochTime();
-  for (int i = 0; i < AMPS_HISTORY_SIZE; i++) {
-    int realIndex = (ampsIndex + i) % AMPS_HISTORY_SIZE;
-    if (!isnan(ampsHistory[realIndex]) && (currentTime - ampsTimestamps[realIndex]) <= 43200) { // 12 hours
-      ampsArray.add(ampsHistory[realIndex]);
-      timeArray.add(ampsTimestamps[realIndex]); // Use absolute epoch timestamp
-    }
-  }
-  String output;
-  serializeJson(serializeJsonDoc, output);
-  return output;
-}
+//   unsigned long currentTime = timeClient.getEpochTime();
+//   for (int i = 0; i < AMPS_HISTORY_SIZE; i++) {
+//     int realIndex = (ampsIndex + i) % AMPS_HISTORY_SIZE;
+//     if (!isnan(ampsHistory[realIndex]) && (currentTime - ampsTimestamps[realIndex]) <= 43200) { // 12 hours
+//       ampsArray.add(ampsHistory[realIndex]);
+//       timeArray.add(ampsTimestamps[realIndex]); // Use absolute epoch timestamp
+//     }
+//   }
+//   String output;
+//   serializeJson(serializeJsonDoc, output);
+//   return output;
+// }
 
 // Update saveHistoryToSPIFFS to include outdoor temperature
 void saveHistoryToSPIFFS(bool enableYield) {
