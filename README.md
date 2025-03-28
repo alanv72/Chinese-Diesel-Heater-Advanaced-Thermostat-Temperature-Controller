@@ -1,6 +1,9 @@
+Memory optimziations. using rolling offset epoch for in-mem arrays. Shrank json doc allocations. TODO - setup mqtt relay server to proxy other esphome devices over WSS connection. I'll use this in pods of ESP32s that are remote.
+
 Major functionality added with MQTT pub/sub to HA/MQTT over cloudfared WSS. Codebase requires expansion of app partition (see partitions.csv choose "custom" in ArduinoIDE).
 
-Added https://github.com/theelims/PsychicMqttClient/tree/main for support of WSS with TLS on ESP32. Note bugfix https://github.com/theelims/PsychicMqttClient/issues/14
+Added https://github.com/theelims/PsychicMqttClient/tree/main for support of WSS with TLS on ESP32. Note bugfixed in v.22 https://github.com/theelims/PsychicMqttClient/issues/14
+
 
 add additional hosts to cloudflared in HA
 - hostname: yourdomain.com
