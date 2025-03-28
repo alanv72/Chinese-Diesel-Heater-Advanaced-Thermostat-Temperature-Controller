@@ -178,6 +178,7 @@ bool cshut = 0;
 String message = "";
 String saveError = ""; // Global variable to store errors, add this outside any function
 unsigned long lastSerialUpdate = 0;
+bool clientconnect = 0;
 
 #define TEMP_HISTORY_SIZE 168 // 12 hours * (60 minutes / 5 minutes per update) = 720 entries
 #define INTERVAL_BETWEEN_SAVES 300000
@@ -1770,6 +1771,7 @@ void setup() {
     // send event with message "hello!", id current millis
     // and set reconnect delay to 1 second
     client->send("hello!", NULL, millis(), 10000);
+    clientconnect = true;
   });
 
   server.addHandler(&events);
@@ -2554,8 +2556,9 @@ void loop() {
       Serial.println("MQTT not connected, skipping publish");
     }
 
-    if (eventen && (unsigned long)(millis() - lastHistEventTime) >= 60000) {
+    if (eventen && ((unsigned long)(millis() - lastHistEventTime) >= 60000 || clientconnect)) {
       lastHistEventTime = millis();
+      clientconnect = (clientconnect) ? 0 : clientconnect;
 
       // History buffer (larger for arrays)
       static char histJsonBuffer[6256];
