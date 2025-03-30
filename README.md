@@ -1,3 +1,9 @@
+Memory and cpu optimizations. Fixed 'double' operations causing 64bit emu. Add additional sensors for HA.
+
+![image](https://github.com/user-attachments/assets/d245d305-5d8b-4d93-a672-29478baf2d22)
+![image](https://github.com/user-attachments/assets/76aba108-6561-460b-bdce-38902037f3ae)
+
+
 Memory optimziations. using rolling offset epoch for in-mem arrays. Shrank json doc allocations. TODO - setup mqtt relay server to proxy other esphome devices over WSS connection. I'll use this in pods of ESP32s that are remote.
 
 Major functionality added with MQTT pub/sub to HA/MQTT over cloudfared WSS. Codebase requires expansion of app partition (see partitions.csv choose "custom" in ArduinoIDE).
