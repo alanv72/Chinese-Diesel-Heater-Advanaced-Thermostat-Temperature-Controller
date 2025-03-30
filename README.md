@@ -1,3 +1,5 @@
+Fixed some HA interaction issues. Updated fan interactions from HA.
+
 Memory and cpu optimizations. Fixed 'double' operations causing 64bit emu. Add additional sensors for HA.
 
 ![image](https://github.com/user-attachments/assets/d245d305-5d8b-4d93-a672-29478baf2d22)
