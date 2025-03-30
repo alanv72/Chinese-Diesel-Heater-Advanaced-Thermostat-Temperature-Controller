@@ -8,7 +8,7 @@
 #include <ElegantOTA.h>
 #include <WiFiClientSecure.h>
 #include <PsychicMqttClient.h>
-#include <TinyMqtt.h>
+// #include <TinyMqtt.h>
 #include "esp_task_wdt.h"
 #include "esp_heap_caps.h"
 #include <Preferences.h>
@@ -1151,7 +1151,7 @@ void onMqttConnect(bool sessionPresent) {
     if (doc.containsKey("ductSpeed") && ductFanManualControl) {
       float percent = doc["ductSpeed"].as<float>();
       float voltageRange = validatedSupply - MIN_FAN_VOLTAGE;
-      manualDuctFanVoltage = (percent <= 0) ? 0.0 : MIN_FAN_VOLTAGE + ((percent - 5.0f) / 95.0f) * voltageRange;
+      manualDuctFanVoltage = (percent <= 0) ? 0.0 : MIN_FAN_VOLTAGE + ((percent - 5) / 95.0) * voltageRange;
       manualDuctFanSpeed = calculateAdjustedPWM(manualDuctFanVoltage, validatedSupply);
       ductfan = manualDuctFanSpeed;
       ledcWrite(DUCT_FAN_PWM_PIN, manualDuctFanSpeed);
@@ -1165,14 +1165,14 @@ void onMqttConnect(bool sessionPresent) {
       if (percent <= 0) {
         manualWallFanVoltage = 0.0;
         manualWallFanSpeed = 0;
-      } else if (percent <= 50.0) {
-        float voltageRange = 9.5 - 6;
-        manualWallFanVoltage = 6 + (percent / 50.0) * voltageRange;
-        manualWallFanSpeed = (int)(cachedFanLow * (6 / 10.5) + (cachedFanMed * (9.5 / 11.5) - cachedFanLow * (6 / 10.5)) * (percent / 50.0));
+      } else if (percent <= 50.0f) {
+        float voltageRange = 9.5f - 6.0f;
+        manualWallFanVoltage = 6.0f + (percent / 50.0f) * voltageRange;
+        manualWallFanSpeed = (int)(cachedFanLow * (6.0f / 10.5f) + (cachedFanMed * (9.5f / 11.5f) - cachedFanLow * (6.0f / 10.5f)) * (percent / 50.0f));
       } else {
-        float voltageRange = validatedSupply - 9.5;
-        manualWallFanVoltage = 9.5 + ((percent - 50.0) / 50.0) * voltageRange;
-        manualWallFanSpeed = (int)(cachedFanMed * (9.5 / 11.5) + (cachedFanHigh - cachedFanMed * (9.5 / 11.5)) * ((percent - 50.0) / 50.0));
+        float voltageRange = validatedSupply - 9.5f;
+        manualWallFanVoltage = 9.5f + ((percent - 50.0f) / 50.0f) * voltageRange;
+        manualWallFanSpeed = (int)(cachedFanMed * (9.5f / 11.5f) + (cachedFanHigh - cachedFanMed * (9.5f / 11.5f)) * ((percent - 50.0f) / 50.0f));
       }
       manualWallFanSpeed = constrain(manualWallFanSpeed, 0, PWM_MAX);
       wallfan = manualWallFanSpeed;
@@ -1182,53 +1182,86 @@ void onMqttConnect(bool sessionPresent) {
       if (DEBUG) Serial.printf("Wall fan manual: Percent=%.1f%%, Voltage=%.1fV, PWM=%d\n", percent, manualWallFanVoltage, manualWallFanSpeed);
     }
 
-    StaticJsonDocument<256> stateDoc;
-    stateDoc["ductSpeed"] = ductFanManualControl ? (manualDuctFanSpeed == 0 ? 0 : 5 + (manualDuctFanSpeed * 95.0 / PWM_MAX)) : (ductfan == 0 ? 0 : 5 + (ductfan * 95.0 / PWM_MAX));
-    stateDoc["wallSpeed"] = wallFanManualControl ? (manualWallFanSpeed == 0 ? 0 : (manualWallFanSpeed <= cachedFanMed * (9.5 / 11.5) ? (manualWallFanSpeed - cachedFanLow * (6 / 10.5)) / (cachedFanMed * (9.5 / 11.5) - cachedFanLow * (6 / 10.5)) * 50.0 : 50.0 + (manualWallFanSpeed - cachedFanMed * (9.5 / 11.5)) / (cachedFanHigh - cachedFanMed * (9.5 / 11.5)) * 50.0)) : (wallfan == 0 ? 0 : (wallfan <= cachedFanMed * (9.5 / 11.5) ? (wallfan - cachedFanLow * (6 / 10.5)) / (cachedFanMed * (9.5 / 11.5) - cachedFanLow * (6 / 10.5)) * 50.0 : 50.0 + (wallfan - cachedFanMed * (9.5 / 11.5)) / (cachedFanHigh - cachedFanMed * (9.5 / 11.5)) * 50.0));
-    stateDoc["ductMode"] = ductFanManualControl ? "manual" : "auto";
-    stateDoc["wallMode"] = wallFanManualControl ? "manual" : "auto";
-    char statePayload[256];
-    serializeJson(stateDoc, statePayload);
-    mqttClient.publish(mqtt_topic_heater_updates.c_str(), 1, true, statePayload);
+    // StaticJsonDocument<256> stateDoc;
+    // stateDoc["ductSpeed"] = ductFanManualControl ? (manualDuctFanSpeed == 0 ? 0 : 5 + (manualDuctFanSpeed * 95.0f / PWM_MAX)) : (ductfan == 0 ? 0 : 5.0f + (ductfan * 95.0f / PWM_MAX));
+    // stateDoc["wallSpeed"] = wallFanManualControl ? (manualWallFanSpeed == 0 ? 0 : (manualWallFanSpeed <= cachedFanMed * (9.5f / 11.5f) ? (manualWallFanSpeed - cachedFanLow * (6.0f / 10.5f)) / (cachedFanMed * (9.5f / 11.5f) - cachedFanLow * (6.0f / 10.5f)) * 50.0f : 50.0f + (manualWallFanSpeed - cachedFanMed * (9.5f / 11.5f)) / (cachedFanHigh - cachedFanMed * (9.5f / 11.5f)) * 50.0f)) : (wallfan == 0 ? 0 : (wallfan <= cachedFanMed * (9.5f / 11.5f) ? (wallfan - cachedFanLow * (6f / 10.5f)) / (cachedFanMed * (9.5f / 11.5f) - cachedFanLow * (6f / 10.5f)) * 50.0f : 50.0f + (wallfan - cachedFanMed * (9.5f / 11.5f)) / (cachedFanHigh - cachedFanMed * (9.5f / 11.5f)) * 50.0f));
+    // stateDoc["ductMode"] = ductFanManualControl ? "manual" : "auto";
+    // stateDoc["wallMode"] = wallFanManualControl ? "manual" : "auto";
+    // char statePayload[256];
+    // serializeJson(stateDoc, statePayload);
+    // mqttClient.publish(mqtt_topic_heater_updates.c_str(), 1, true, statePayload);
   });
 
-  // Fan control mode handler
+ // Fan control mode handler
   mqttClient.onTopic(mqtt_topic_control_mode.c_str(), 1, [](const char* topic, const char* payload, int retain, int qos, bool dup) {
     Serial.printf("MQTT Message on [%s]: '%s'\n", topic, payload);
     StaticJsonDocument<256> doc;
     deserializeJson(doc, payload);
     String fan = doc["fan"].as<String>();
     String mode = doc["mode"].as<String>();
+    float validatedSupply = (supplyVoltage <= 5.0f || supplyVoltage > 15.0f || isnan(supplyVoltage)) ? 12.0f : supplyVoltage;
+
     if (fan == "duct") {
-      ductFanManualControl = (mode == "manual");
-      preferences.putBool("ductFanManual", ductFanManualControl);
-      if (!ductFanManualControl) {
+      if (mode == "on") {
+        ductFanManualControl = true;
+        manualDuctFanVoltage = validatedSupply; // 100% speed
+        manualDuctFanSpeed = calculateAdjustedPWM(manualDuctFanVoltage, validatedSupply);
+        ductfan = manualDuctFanSpeed;
+        ledcWrite(DUCT_FAN_PWM_PIN, manualDuctFanSpeed);
+      } else if (mode == "off") {
+        ductFanManualControl = false;
         manualDuctFanSpeed = 0;
-        manualDuctFanVoltage = 0.0;
-        ductfan = 0; // Reset to 0 PWM in auto mode
-        preferences.putInt("manualDuctSpeed", 0);
-        preferences.putFloat("manualDuctVoltage", 0.0);
+        manualDuctFanVoltage = 0.0f;
+        ductfan = 0;
+        ledcWrite(DUCT_FAN_PWM_PIN, 0);
+      } else {
+        ductFanManualControl = (mode == "manual");
+        if (!ductFanManualControl) {
+          manualDuctFanSpeed = 0;
+          manualDuctFanVoltage = 0.0f;
+          ductfan = 0; // Reset to 0 PWM in auto mode
+          ledcWrite(DUCT_FAN_PWM_PIN, 0);
+        }
       }
+      preferences.putBool("ductFanManual", ductFanManualControl);
+      preferences.putInt("manualDuctSpeed", manualDuctFanSpeed);
+      preferences.putFloat("manualDuctVoltage", manualDuctFanVoltage);
     } else if (fan == "wall") {
-      wallFanManualControl = (mode == "manual");
-      preferences.putBool("wallFanManual", wallFanManualControl);
-      if (!wallFanManualControl) {
+      if (mode == "on") {
+        wallFanManualControl = true;
+        manualWallFanVoltage = validatedSupply; // 100% speed
+        manualWallFanSpeed = calculateAdjustedPWM(manualWallFanVoltage, validatedSupply);
+        wallfan = manualWallFanSpeed;
+        ledcWrite(WALL_FAN_PWM_PIN, manualWallFanSpeed);
+      } else if (mode == "off") {
+        wallFanManualControl = false;
         manualWallFanSpeed = 0;
-        manualWallFanVoltage = 0.0;
-        wallfan = 0; // Reset to 0 PWM in auto mode
-        preferences.putInt("manualWallSpeed", 0);
-        preferences.putFloat("manualWallVoltage", 0.0);
+        manualWallFanVoltage = 0.0f;
+        wallfan = 0;
+        ledcWrite(WALL_FAN_PWM_PIN, 0);
+      } else {
+        wallFanManualControl = (mode == "manual");
+        if (!wallFanManualControl) {
+          manualWallFanSpeed = 0;
+          manualWallFanVoltage = 0.0f;
+          wallfan = 0; // Reset to 0 PWM in auto mode
+          ledcWrite(WALL_FAN_PWM_PIN, 0);
+        }
       }
+      preferences.putBool("wallFanManual", wallFanManualControl);
+      preferences.putInt("manualWallSpeed", manualWallFanSpeed);
+      preferences.putFloat("manualWallVoltage", manualWallFanVoltage);
     }
-    // Immediate state update
-    StaticJsonDocument<256> stateDoc;
-    stateDoc["ductSpeed"] = ductFanManualControl ? (manualDuctFanSpeed == 0 ? 0 : 5 + (manualDuctFanSpeed * 95.0 / PWM_MAX)) : (ductfan == 0 ? 0 : 5 + (ductfan * 95.0 / PWM_MAX));
-    stateDoc["wallSpeed"] = wallFanManualControl ? (manualWallFanSpeed == 0 ? 0 : (manualWallFanSpeed <= cachedFanMed * (9.5 / 11.5) ? (manualWallFanSpeed - cachedFanLow * (6 / 10.5)) / (cachedFanMed * (9.5 / 11.5) - cachedFanLow * (6 / 10.5)) * 50.0 : 50.0 + (manualWallFanSpeed - cachedFanMed * (9.5 / 11.5)) / (cachedFanHigh - cachedFanMed * (9.5 / 11.5)) * 50.0)) : (wallfan == 0 ? 0 : (wallfan <= cachedFanMed * (9.5 / 11.5) ? (wallfan - cachedFanLow * (6 / 10.5)) / (cachedFanMed * (9.5 / 11.5) - cachedFanLow * (6 / 10.5)) * 50.0 : 50.0 + (wallfan - cachedFanMed * (9.5 / 11.5)) / (cachedFanHigh - cachedFanMed * (9.5 / 11.5)) * 50.0));
-    stateDoc["ductMode"] = ductFanManualControl ? "manual" : "auto";
-    stateDoc["wallMode"] = wallFanManualControl ? "manual" : "auto";
-    char statePayload[256];
-    serializeJson(stateDoc, statePayload, sizeof(statePayload));
-    mqttClient.publish(mqtt_topic_heater_updates.c_str(), 1, true, statePayload);
+
+    // // Immediate state update
+    // StaticJsonDocument<256> stateDoc;
+    // stateDoc["ductSpeed"] = ductFanManualControl ? (manualDuctFanSpeed == 0 ? 0 : 5 + (manualDuctFanSpeed * 95.0f / PWM_MAX)) : (ductfan == 0 ? 0 : 5 + (ductfan * 95.0f / PWM_MAX));
+    // stateDoc["wallSpeed"] = wallFanManualControl ? (manualWallFanSpeed == 0 ? 0 : (manualWallFanSpeed <= cachedFanMed * (9.5f / 11.5f) ? (manualWallFanSpeed - cachedFanLow * (6.0f / 10.5f)) / (cachedFanMed * (9.5f / 11.5f) - cachedFanLow * (6.0f / 10.5f)) * 50.0f : 50.0f + (manualWallFanSpeed - cachedFanMed * (9.5f / 11.5f)) / (cachedFanHigh - cachedFanMed * (9.5f / 11.5f)) * 50.0f)) : (wallfan == 0 ? 0 : (wallfan <= cachedFanMed * (9.5f / 11.5f) ? (wallfan - cachedFanLow * (6.0f / 10.5f)) / (cachedFanMed * (9.5f / 11.5f) - cachedFanLow * (6.0f / 10.5f)) * 50.0f : 50.0f + (wallfan - cachedFanMed * (9.5f / 11.5f)) / (cachedFanHigh - cachedFanMed * (9.5f / 11.5f)) * 50.0f));
+    // stateDoc["ductMode"] = ductFanManualControl ? "manual" : "auto";
+    // stateDoc["wallMode"] = wallFanManualControl ? "manual" : "auto";
+    // char statePayload[256];
+    // serializeJson(stateDoc, statePayload, sizeof(statePayload));
+    // mqttClient.publish(mqtt_topic_heater_updates.c_str(), 1, true, statePayload);
   });
 
   mqttClient.onTopic(mqtt_topic_shutdown.c_str(), 1, [](const char* topic, const char* payload, int retain, int qos, bool dup) {
@@ -1260,29 +1293,35 @@ void onMqttConnect(bool sessionPresent) {
   });
 
   // Publish discovery payloads
-  // Duct Fan discovery (simplified, with custom attribute)
+  // Duct Fan discovery
   String duct_fan_discovery_topic = "homeassistant/fan/" + currentBLEName + "_duct_fan/config";
   String duct_fan_discovery_payload = String(R"({"name": "Duct Fan", "unique_id": ")") + 
     currentBLEName + R"(_duct_fan", "device": {"identifiers": [")" + currentBLEName + R"(_heater"], "name": ")" + currentBLEName + 
-    R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "command_topic": ")" + mqtt_topic_fan_speed + 
-    R"(", "state_topic": ")" + mqtt_topic_heater_updates + R"(", )" +
+    R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, )" +
+    R"("command_topic": ")" + mqtt_topic_control_mode + R"(", )" +
+    R"("command_template": "{\"fan\": \"duct\", \"mode\": \"{{ 'on' if value == 'ON' else 'off' }}\"}", )" +
+    R"("state_topic": ")" + mqtt_topic_heater_updates + R"(", )" +
+    R"("state_value_template": "{{ 'ON' if value_json.ductSpeed > 0 else 'OFF' }}", )" +
     R"("percentage_command_topic": ")" + mqtt_topic_fan_speed + R"(", "percentage_command_template": "{\"ductSpeed\": {{ value }}}", )" +
     R"("percentage_state_topic": ")" + mqtt_topic_heater_updates + R"(", "percentage_value_template": "{{ value_json.ductSpeed }}", "speed_range": [0, 100], )" +
     R"("preset_mode_command_topic": ")" + mqtt_topic_control_mode + R"(", "preset_mode_command_template": "{\"fan\": \"duct\", \"mode\": \"{{ value }}\"}", )" +
-    R"("preset_mode_state_topic": ")" + mqtt_topic_heater_updates + R"(", "preset_mode_value_template": "{{ value_json.ductMode }}", "preset_modes": ["auto", "manual"], )" +
+    R"("preset_mode_state_topic": ")" + mqtt_topic_heater_updates + R"(", "preset_mode_value_template": "{{ value_json.ductMode }}", "preset_modes": ["auto", "manual", "on", "off"], )" +  // Updated modes
     R"("attributes": {"control_mode": {"state_topic": ")" + mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.ductMode }}"}}})";
   mqttClient.publish(duct_fan_discovery_topic.c_str(), 1, true, duct_fan_discovery_payload.c_str());
 
-  // Wall Fan discovery (simplified, with custom attribute)
+  // Wall Fan discovery
   String wall_fan_discovery_topic = "homeassistant/fan/" + currentBLEName + "_wall_fan/config";
   String wall_fan_discovery_payload = String(R"({"name": "Wall Fan", "unique_id": ")") + 
     currentBLEName + R"(_wall_fan", "device": {"identifiers": [")" + currentBLEName + R"(_heater"], "name": ")" + currentBLEName + 
-    R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "command_topic": ")" + mqtt_topic_fan_speed + 
-    R"(", "state_topic": ")" + mqtt_topic_heater_updates + R"(", )" +
+    R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, )" +
+    R"("command_topic": ")" + mqtt_topic_control_mode + R"(", )" +
+    R"("command_template": "{\"fan\": \"wall\", \"mode\": \"{{ 'on' if value == 'ON' else 'off' }}\"}", )" +
+    R"("state_topic": ")" + mqtt_topic_heater_updates + R"(", )" +
+    R"("state_value_template": "{{ 'ON' if value_json.wallSpeed > 0 else 'OFF' }}", )" +
     R"("percentage_command_topic": ")" + mqtt_topic_fan_speed + R"(", "percentage_command_template": "{\"wallSpeed\": {{ value }}}", )" +
     R"("percentage_state_topic": ")" + mqtt_topic_heater_updates + R"(", "percentage_value_template": "{{ value_json.wallSpeed }}", "speed_range": [0, 100], )" +
     R"("preset_mode_command_topic": ")" + mqtt_topic_control_mode + R"(", "preset_mode_command_template": "{\"fan\": \"wall\", \"mode\": \"{{ value }}\"}", )" +
-    R"("preset_mode_state_topic": ")" + mqtt_topic_heater_updates + R"(", "preset_mode_value_template": "{{ value_json.wallMode }}", "preset_modes": ["auto", "manual"], )" +
+    R"("preset_mode_state_topic": ")" + mqtt_topic_heater_updates + R"(", "preset_mode_value_template": "{{ value_json.wallMode }}", "preset_modes": ["auto", "manual", "on", "off"], )" +  // Updated modes
     R"("attributes": {"control_mode": {"state_topic": ")" + mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.wallMode }}"}}})";
   mqttClient.publish(wall_fan_discovery_topic.c_str(), 1, true, wall_fan_discovery_payload.c_str());
 
@@ -1649,7 +1688,7 @@ void setup() {
     }
   }
 
-  dumpPreferencesToSPIFFS("/preferences_backup.json");
+  dumpPreferencesToSPIFFS("/pref.json");
 
   // Initialize timers
   wifiReconnectTimer = xTimerCreate("wifiReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, wifiReconnectCallback);
