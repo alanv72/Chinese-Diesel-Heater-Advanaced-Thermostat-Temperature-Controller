@@ -8,6 +8,7 @@
 #include <ElegantOTA.h>
 #include <WiFiClientSecure.h>
 #include <PsychicMqttClient.h>
+#include <TinyMqtt.h>
 #include "esp_task_wdt.h"
 #include "esp_heap_caps.h"
 #include <Preferences.h>
@@ -42,14 +43,14 @@ const unsigned long adjustmentInterval = 200;  // interval between adjustments
 #define DS18B20_SENSOR_PIN 14   // Pin for DY-HFT sensor
 
 // Voltage thresholds and targets
-const float NOMINAL_VOLTAGE = 13.5; // Fully charged battery baseline
-const float MIN_SUPPLY_VOLTAGE = 10.5; // Minimum supply voltage before fans shut off
-const float REC_SUPPLY_VOLTAGE = 11.0; // Recovery supply voltage once the battery charged to 11.5v
-const float MAX_SUPPLY_VOLTAGE = 14.3; // Maximum supply voltage while charging
+const float NOMINAL_VOLTAGE = 13.5f; // Fully charged battery baseline
+const float MIN_SUPPLY_VOLTAGE = 10.5f; // Minimum supply voltage before fans shut off
+const float REC_SUPPLY_VOLTAGE = 11.0f; // Recovery supply voltage once the battery charged to 11.5v
+const float MAX_SUPPLY_VOLTAGE = 14.3f; // Maximum supply voltage while charging
 //const float MOSFET_DROP = 0.3;      // IRL540N voltage drop at ~3A load
-const float MIN_FAN_VOLTAGE = 10.5;  // Minimum fan voltage for "Low"
-const float MED_FAN_VOLTAGE = 11.5;  // Medium fan voltage
-const float HIGH_FAN_VOLTAGE = 12.5;// High fan voltage (updated to 12V as requested)
+const float MIN_FAN_VOLTAGE = 10.5f;  // Minimum fan voltage for "Low"
+const float MED_FAN_VOLTAGE = 11.5f;  // Medium fan voltage
+const float HIGH_FAN_VOLTAGE = 12.5f;// High fan voltage (updated to 12V as requested)
 // Fan speed levels (nominal voltages without MOSFET drop)
 const int FAN_OFF = 0;           // 0% duty cycle (0V)
 const int PWM_MAX = 1023;        // Max PWM value (10-bit resolution)
@@ -80,9 +81,6 @@ bool wdtTimeoutOccurred = false;
 // Optional: Counter for total WDT timeouts since boot
 unsigned int wdtTimeoutCount = 0;
 
-// static DynamicJsonDocument jsonDoc(24576);
-// static  DynamicJsonDocument serializeJsonDoc(6144); // Adjust size as necessary
-
 ESP32SoftwareSerial sOne(HEATER_PIN);
 
 // Setup OneWire and DallasTemperature for DS18B20
@@ -98,7 +96,7 @@ const char* fallbackSSID = "littlesugar";
 const unsigned long PRIMARY_CONNECT_TIME = 10000;
 const unsigned long FALLBACK_CONNECT_TIME = 20000;
 unsigned long wifiConnectStartMillis = 0;
-bool tryingPrimary = true;
+bool wifiPrimary = false;
 bool connectedToAnyNetwork = false;
 TimerHandle_t wifiReconnectTimer;
 
@@ -106,7 +104,6 @@ TimerHandle_t wifiReconnectTimer;
 unsigned long bootTime = millis();
 unsigned long lastMillis = 0;
 unsigned long overflowCount = 0;
-unsigned long long uptime = 0; // Changed to unsigned long long
 unsigned long lastMemoryCheckTime = 300100;
 unsigned long lastJsonCheckTime = 300100;
 unsigned long lastHistEventTime = 60100;
@@ -174,6 +171,7 @@ bool frostModeEnabled = false;
 float glowPlugHours = 0.0;  // Hours of glow plug operation
 int glowPlugCurrent = 0;
 float glowPlugCurrent_Amps = 0.0;
+float totalPower = 0;
 bool voltagegood = true;
 bool cshut = 0;
 String message = "";
@@ -289,6 +287,41 @@ bool temperatureChangeByWeb = false;
 float walltemp = 0.0;
 float walltemptrigger = 100;
 
+// // TinyMqtt Broker settings
+// #define LOCAL_MQTT_PORT 1884
+// MqttBroker broker(LOCAL_MQTT_PORT, 10);
+
+// // Authentication state
+// bool clientAuthenticated = false;
+// std::string authenticatedClientId;
+
+// MqttClient localClient(&broker, "bridge_client"); // Local client for proxying
+
+// Static credentials
+const char* EXPECTED_USERNAME = mqttb_user;
+const char* EXPECTED_PASSWORD = mqttb_pw;
+
+// // Callback for TinyMqtt broker when a message is published
+// void onPublish(const MqttClient* source, const Topic& topic_str, const char* payload, size_t len) {
+//   String topic = topic_str.c_str();
+//   String message = String(payload, len);
+
+//   if (topic.startsWith("esphome/rv-batt-sg5k/")) {
+//     if (mqttClient.connected()) {
+//       mqttClient.publish(topic.c_str(), 0, false, payload, len);
+//       Serial.printf("Relayed to HA: %s -> %s\n", topic.c_str(), message.c_str());
+//     }
+//   }
+// }
+
+// void mqttCallback(char* topic, char* payload, int qos, int length, bool retain) {
+//   Serial.printf("Received topic: %s, payload: %s\n", topic, payload);
+//   if (strncmp(topic, "esphome/rv-batt-sg5k/", 21) == 0) {
+//     localClient.publish(Topic(topic), payload, static_cast<size_t>(length)); // Cast length to size_t
+//     Serial.printf("Relayed to ESPHome: %s -> %s\n", topic, payload);
+//   }
+// }
+
 // Update base epoch to current year
 void updateBaseEpoch() {
   unsigned long currentEpoch = timeClient.getEpochTime();
@@ -401,12 +434,12 @@ void updateBaseEpoch() {
 
 // Convert Celsius to Fahrenheit
 float celsiusToFahrenheit(float celsius) {
-  return (celsius * 9.0 / 5.0) + 32.0;
+  return (celsius * 9.0f / 5.0f) + 32.0f;
 }
 
 // Convert Fahrenheit to Celsius for heater command
 float fahrenheitToCelsius(float fahrenheit) {
-  return (fahrenheit - 32) * 5.0 / 9.0;
+  return (fahrenheit - 32.0f) * 5.0f / 9.0f;
 }
 
 // Function to calculate heater fan amps based on RPM
@@ -427,15 +460,15 @@ float calculateHeaterFanAmps(int rpm) {
 
 // Function to calculate duct fan amps based on voltage
 float calculateDuctFanAmps(float voltage) {
-  if (voltage <= 0) return 0.0;
-  if (voltage <= 6.0) {
-    return (voltage / 6.0) * 0.08;
-  } else if (voltage <= 9.0) {
-    float slope = (0.27 - 0.08) / (9.0 - 6.0); // 0.06333 A/V
-    return 0.08 + slope * (voltage - 6.0);
+  if (voltage <= 0.0f) return 0.0f;
+  if (voltage <= 6.0f) {
+    return (voltage / 6.0f) * 0.08f;
+  } else if (voltage <= 9.0f) {
+    float slope = (0.27f - 0.08f) / (9.0f - 6.0f); // 0.06333 A/V
+    return 0.08f + slope * (voltage - 6.0f);
   } else {
-    float slope = (0.43 - 0.27) / (12.0 - 9.0); // 0.05333 A/V
-    return 0.27 + slope * (voltage - 9.0);
+    float slope = (0.43f - 0.27f) / (12.0f - 9.0f); // 0.05333 A/V
+    return 0.27f + slope * (voltage - 9.0f);
   }
 }
 
@@ -496,7 +529,7 @@ float calculateTotalPower(float validatedSupply) {
   float wallFanPower = wallFanAmps * wallFanVoltage;
 
   // Control circuits (.5A when powered on)
-  float controlPower = .18 * validatedSupply;
+  float controlPower = .18f * validatedSupply;
 
   // Fuel pump
   float fuelPumpAmps = calculateFuelPumpAmps(pumpHz);
@@ -594,20 +627,20 @@ float calculateRolling24HourAverageWattHours(unsigned long epochTime) {
 
   // Calculate rolling average
   if (hoursCovered > 0) {
-    return totalWattHours / 24.0; // Average per hour over 24-hour window
+    return totalWattHours / 24.0f; // Average per hour over 24-hour window
   }
   return 0.0; // No data
 }
 
 // Dynamically adjust PWM as voltage sags with battery drain, ensuring minimum 9V output
 inline int calculateAdjustedPWM(float targetVoltage, float supplyVoltage) {
-  const float REF_VOLTAGE = 13.1;    // Reference supply voltage
-  const float MIN_VOLTAGE = 9;    // Minimum operational voltage
-  const float REF_10V = 10.0;
-  const float REF_12V = 12.0;
-  const float DEFAULT_SUPPLY = 12.0; // Default if supplyVoltage invalid
-  const float REF_PWM_10V = 792.0;   // PWM for 10V at 13.1V (10/13.1 * 1023)
-  const float REF_PWM_12V = 952.0;   // PWM for 12V at 13.1V
+  const float REF_VOLTAGE = 13.1f;    // Reference supply voltage
+  const float MIN_VOLTAGE = 9.0f;    // Minimum operational voltage
+  const float REF_10V = 10.0f;
+  const float REF_12V = 12.0f;
+  const float DEFAULT_SUPPLY = 12.0f; // Default if supplyVoltage invalid
+  const float REF_PWM_10V = 792.0f;   // PWM for 10V at 13.1V (10/13.1 * 1023)
+  const float REF_PWM_12V = 952.0f;   // PWM for 12V at 13.1V
 
   // Validate supply voltage
   float validatedSupply = supplyVoltage;
@@ -662,6 +695,7 @@ void connectToWiFi() {
   while (WiFi.status() != WL_CONNECTED && (unsigned long)(millis() - wifiConnectStartMillis) < PRIMARY_CONNECT_TIME) {
     delay(1000);
     Serial.print(".");
+    wifiPrimary = true;
   }
 
   if (WiFi.status() != WL_CONNECTED) {
@@ -671,6 +705,7 @@ void connectToWiFi() {
     while (WiFi.status() != WL_CONNECTED && (unsigned long)(millis() - wifiConnectStartMillis) < FALLBACK_CONNECT_TIME) {
       delay(1000);
       Serial.print(".");
+      wifiPrimary = false;
     }
   }
 
@@ -1092,6 +1127,7 @@ void connectToMqtt() {
 
 void onMqttConnect(bool sessionPresent) {
   Serial.println("Connected to MQTT broker");
+  mqttClient.subscribe("esphome/rv-batt-sg5k/#", 0);
 
   // Subscribe and set up topic-specific handlers
   mqttClient.onTopic(mqtt_topic_set_temp.c_str(), 1, [](const char* topic, const char* payload, int retain, int qos, bool dup) {
@@ -1115,7 +1151,7 @@ void onMqttConnect(bool sessionPresent) {
     if (doc.containsKey("ductSpeed") && ductFanManualControl) {
       float percent = doc["ductSpeed"].as<float>();
       float voltageRange = validatedSupply - MIN_FAN_VOLTAGE;
-      manualDuctFanVoltage = (percent <= 0) ? 0.0 : MIN_FAN_VOLTAGE + ((percent - 5) / 95.0) * voltageRange;
+      manualDuctFanVoltage = (percent <= 0) ? 0.0 : MIN_FAN_VOLTAGE + ((percent - 5.0f) / 95.0f) * voltageRange;
       manualDuctFanSpeed = calculateAdjustedPWM(manualDuctFanVoltage, validatedSupply);
       ductfan = manualDuctFanSpeed;
       ledcWrite(DUCT_FAN_PWM_PIN, manualDuctFanSpeed);
@@ -1226,7 +1262,7 @@ void onMqttConnect(bool sessionPresent) {
   // Publish discovery payloads
   // Duct Fan discovery (simplified, with custom attribute)
   String duct_fan_discovery_topic = "homeassistant/fan/" + currentBLEName + "_duct_fan/config";
-  String duct_fan_discovery_payload = String(R"({"name": ")") + currentBLEName + R"( Duct Fan", "unique_id": ")" + 
+  String duct_fan_discovery_payload = String(R"({"name": "Duct Fan", "unique_id": ")") + 
     currentBLEName + R"(_duct_fan", "device": {"identifiers": [")" + currentBLEName + R"(_heater"], "name": ")" + currentBLEName + 
     R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "command_topic": ")" + mqtt_topic_fan_speed + 
     R"(", "state_topic": ")" + mqtt_topic_heater_updates + R"(", )" +
@@ -1239,7 +1275,7 @@ void onMqttConnect(bool sessionPresent) {
 
   // Wall Fan discovery (simplified, with custom attribute)
   String wall_fan_discovery_topic = "homeassistant/fan/" + currentBLEName + "_wall_fan/config";
-  String wall_fan_discovery_payload = String(R"({"name": ")") + currentBLEName + R"( Wall Fan", "unique_id": ")" + 
+  String wall_fan_discovery_payload = String(R"({"name": "Wall Fan", "unique_id": ")") + 
     currentBLEName + R"(_wall_fan", "device": {"identifiers": [")" + currentBLEName + R"(_heater"], "name": ")" + currentBLEName + 
     R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "command_topic": ")" + mqtt_topic_fan_speed + 
     R"(", "state_topic": ")" + mqtt_topic_heater_updates + R"(", )" +
@@ -1252,10 +1288,10 @@ void onMqttConnect(bool sessionPresent) {
 
   // Heater control discovery
   String discovery_topic = "homeassistant/climate/" + currentBLEName + "/config";
-  String discovery_payload = String(R"({"name": ")") + currentBLEName + R"(", "unique_id": ")" + currentBLEName + 
+  String discovery_payload = String(R"({"name": "Heater", "unique_id": ")") + currentBLEName + 
     R"(_heater", "device": {"identifiers": [")" + currentBLEName + R"(_heater"], "name": ")" + currentBLEName + 
     R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "temperature_unit": "F", "min_temp": 46, "max_temp": 100, "temp_step": 1, "modes": ["off", "heat", "auto"], "temperature_state_topic": ")" + 
-    mqtt_topic_heater_updates + R"(", "temperature_state_template": "{{ value_json.currentTemp }}", "temperature_command_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "temperature_state_template": "{{ value_json.setTemp }}", "temperature_command_topic": ")" + 
     mqtt_topic_set_temp + R"(", "current_temperature_topic": ")" + mqtt_topic_heater_updates + 
     R"(", "current_temperature_template": "{{ value_json.currentTemp }}", "mode_state_topic": ")" + 
     mqtt_topic_heater_updates + R"(", "mode_state_template": "{% if value_json.controlEnable | int == 1 %}heat{% elif value_json.frostMode | bool %}auto{% else %}off{% endif %}", "mode_command_topic": ")" + 
@@ -1263,11 +1299,236 @@ void onMqttConnect(bool sessionPresent) {
   mqttClient.publish(discovery_topic.c_str(), 1, true, discovery_payload.c_str());
   // Heater state
   String state_discovery_topic = "homeassistant/sensor/" + currentBLEName + "_state/config";
-  String state_discovery_payload = String(R"({"name": ")") + currentBLEName + R"( State", "unique_id": ")" + 
+  String state_discovery_payload = String(R"({"name": "State", "unique_id": ")") + 
     currentBLEName + R"(_heater_state", "device": {"identifiers": [")" + currentBLEName + 
     R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
     mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.state }}"})";
   mqttClient.publish(state_discovery_topic.c_str(), 1, true, state_discovery_payload.c_str());
+
+  // Fuel Consumption Lifetime Sensor
+  String fuel_lifetime_topic = "homeassistant/sensor/" + currentBLEName + "_fuel_lifetime/config";
+  String fuel_lifetime_payload = String(R"({"name": "Fuel Lifetime", "unique_id": ")") + 
+    currentBLEName + R"(_fuel_lifetime", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.fuelConsumedLifetime }}", "unit_of_measurement": "gal"})";
+  mqttClient.publish(fuel_lifetime_topic.c_str(), 1, true, fuel_lifetime_payload.c_str());
+
+  // Fuel Consumed Tank Sensor
+  String fuel_tank_topic = "homeassistant/sensor/" + currentBLEName + "_fuel_tank/config";
+  String fuel_tank_payload = String(R"({"name": "Fuel Tank", "unique_id": ")") + 
+    currentBLEName + R"(_fuel_tank", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.fuelConsumedTank }}", "unit_of_measurement": "gal"})";
+  mqttClient.publish(fuel_tank_topic.c_str(), 1, true, fuel_tank_payload.c_str());
+
+  // Fuel Used Percentage Sensor
+  String fuel_used_percentage_topic = "homeassistant/sensor/" + currentBLEName + "_fuel_used_percentage/config";
+  String fuel_used_percentage_payload = String(R"({"name": "Fuel Used Percentage", "unique_id": ")") + 
+    currentBLEName + R"(_fuel_used_percentage", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.fuelUsedPercentage }}", "unit_of_measurement": "%"})";
+  mqttClient.publish(fuel_used_percentage_topic.c_str(), 1, true, fuel_used_percentage_payload.c_str());
+
+  // Pump Hz Sensor
+  String pump_hz_topic = "homeassistant/sensor/" + currentBLEName + "_pump_hz/config";
+  String pump_hz_payload = String(R"({"name": "Pump Hz", "unique_id": ")") + 
+    currentBLEName + R"(_pump_hz", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.pumpHz }}", "unit_of_measurement": "Hz"})";
+  mqttClient.publish(pump_hz_topic.c_str(), 1, true, pump_hz_payload.c_str());
+
+  // Fan Speed Sensor
+  String fan_speed_topic = "homeassistant/sensor/" + currentBLEName + "_fan_speed/config";
+  String fan_speed_payload = String(R"({"name": "Fan Speed", "unique_id": ")") + 
+    currentBLEName + R"(_fan_speed", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.fanSpeed }}", "unit_of_measurement": "RPM"})";
+  mqttClient.publish(fan_speed_topic.c_str(), 1, true, fan_speed_payload.c_str());
+
+  // Supply Voltage Sensor
+  String supply_voltage_topic = "homeassistant/sensor/" + currentBLEName + "_supply_voltage/config";
+  String supply_voltage_payload = String(R"({"name": "Supply Voltage", "unique_id": ")") + 
+    currentBLEName + R"(_supply_voltage", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.supplyVoltage }}", "unit_of_measurement": "V"})";
+  mqttClient.publish(supply_voltage_topic.c_str(), 1, true, supply_voltage_payload.c_str());
+
+  // Total Power Sensor
+  String total_power_topic = "homeassistant/sensor/" + currentBLEName + "_total_power/config";
+  String total_power_payload = String(R"({"name": "Total Power", "unique_id": ")") + 
+    currentBLEName + R"(_total_power", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.totalPower }}", "unit_of_measurement": "W"})";
+  mqttClient.publish(total_power_topic.c_str(), 1, true, total_power_payload.c_str());
+
+  // Amps Sensor
+  String amps_topic = "homeassistant/sensor/" + currentBLEName + "_amps/config";
+  String amps_payload = String(R"({"name": "Amps", "unique_id": ")") + 
+    currentBLEName + R"(_amps", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.amps }}", "unit_of_measurement": "A"})";
+  mqttClient.publish(amps_topic.c_str(), 1, true, amps_payload.c_str());
+
+  // Voltage Warning Sensor
+  String voltage_warning_topic = "homeassistant/sensor/" + currentBLEName + "_voltage_warning/config";
+  String voltage_warning_payload = String(R"({"name": "Voltage Warning", "unique_id": ")") + 
+    currentBLEName + R"(_voltage_warning", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.voltageWarning }}"})";
+  mqttClient.publish(voltage_warning_topic.c_str(), 1, true, voltage_warning_payload.c_str());
+
+  // Tank Size Gallons Sensor
+  String tank_size_topic = "homeassistant/sensor/" + currentBLEName + "_tank_size/config";
+  String tank_size_payload = String(R"({"name": "Tank Size", "unique_id": ")") + 
+    currentBLEName + R"(_tank_size", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.tankSizeGallons }}", "unit_of_measurement": "gal"})";
+  mqttClient.publish(tank_size_topic.c_str(), 1, true, tank_size_payload.c_str());
+
+  // Heater Internal Temp Sensor
+  String heater_internal_temp_topic = "homeassistant/sensor/" + currentBLEName + "_heater_internal_temp/config";
+  String heater_internal_temp_payload = String(R"({"name": "Heater Internal Temp", "unique_id": ")") + 
+    currentBLEName + R"(_heater_internal_temp", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.heaterinternalTemp }}", "unit_of_measurement": "°F"})";
+  mqttClient.publish(heater_internal_temp_topic.c_str(), 1, true, heater_internal_temp_payload.c_str());
+
+  // Glow Plug Hours Sensor
+  String glow_plug_hours_topic = "homeassistant/sensor/" + currentBLEName + "_glow_plug_hours/config";
+  String glow_plug_hours_payload = String(R"({"name": "Glow Plug Hours", "unique_id": ")") + 
+    currentBLEName + R"(_glow_plug_hours", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.glowPlugHours }}", "unit_of_measurement": "h"})";
+  mqttClient.publish(glow_plug_hours_topic.c_str(), 1, true, glow_plug_hours_payload.c_str());
+
+  // Glow Plug Current Amps Sensor
+  String glow_plug_current_topic = "homeassistant/sensor/" + currentBLEName + "_glow_plug_current/config";
+  String glow_plug_current_payload = String(R"({"name": "Glow Plug Current", "unique_id": ")") + 
+    currentBLEName + R"(_glow_plug_current", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.glowPlugCurrent_Amps }}", "unit_of_measurement": "A"})";
+  mqttClient.publish(glow_plug_current_topic.c_str(), 1, true, glow_plug_current_payload.c_str());
+
+  // Wall Temp Sensor
+  String wall_temp_topic = "homeassistant/sensor/" + currentBLEName + "_wall_temp/config";
+  String wall_temp_payload = String(R"({"name": "Wall Temp", "unique_id": ")") + 
+    currentBLEName + R"(_wall_temp", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.walltemp }}", "unit_of_measurement": "°F"})";
+  mqttClient.publish(wall_temp_topic.c_str(), 1, true, wall_temp_payload.c_str());
+
+  // Wall Temp Trigger Sensor
+  String wall_temp_trigger_topic = "homeassistant/sensor/" + currentBLEName + "_wall_temp_trigger/config";
+  String wall_temp_trigger_payload = String(R"({"name": "Wall Temp Trigger", "unique_id": ")") + 
+    currentBLEName + R"(_wall_temp_trigger", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.walltemptrigger }}", "unit_of_measurement": "°F"})";
+  mqttClient.publish(wall_temp_trigger_topic.c_str(), 1, true, wall_temp_trigger_payload.c_str());
+
+  // Temp Warn Sensor
+  String temp_warn_topic = "homeassistant/sensor/" + currentBLEName + "_temp_warn/config";
+  String temp_warn_payload = String(R"({"name": "Temp Warning", "unique_id": ")") + 
+    currentBLEName + R"(_temp_warn", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.tempwarn }}"})";
+  mqttClient.publish(temp_warn_topic.c_str(), 1, true, temp_warn_payload.c_str());
+
+  // Message Sensor
+  String message_topic = "homeassistant/sensor/" + currentBLEName + "_message/config";
+  String message_payload = String(R"({"name": "Message", "unique_id": ")") + 
+    currentBLEName + R"(_message", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.message }}"})";
+  mqttClient.publish(message_topic.c_str(), 1, true, message_payload.c_str());
+
+  // Serial Established Sensor
+  String serial_established_topic = "homeassistant/sensor/" + currentBLEName + "_serial_established/config";
+  String serial_established_payload = String(R"({"name": "Serial Established", "unique_id": ")") + 
+    currentBLEName + R"(_serial_established", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.serialEstablished }}"})";
+  mqttClient.publish(serial_established_topic.c_str(), 1, true, serial_established_payload.c_str());
+
+  // Serial Active Sensor
+  String serial_active_topic = "homeassistant/sensor/" + currentBLEName + "_serial_active/config";
+  String serial_active_payload = String(R"({"name": "Serial Active", "unique_id": ")") + 
+    currentBLEName + R"(_serial_active", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.serialActive }}"})";
+  mqttClient.publish(serial_active_topic.c_str(), 1, true, serial_active_payload.c_str());
+
+  // Serial Interrupt Count Sensor
+  String serial_interrupt_count_topic = "homeassistant/sensor/" + currentBLEName + "_serial_interrupt_count/config";
+  String serial_interrupt_count_payload = String(R"({"name": "Serial Interrupt Count", "unique_id": ")") + 
+    currentBLEName + R"(_serial_interrupt_count", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.serialinterruptcount }}"})";
+  mqttClient.publish(serial_interrupt_count_topic.c_str(), 1, true, serial_interrupt_count_payload.c_str());
+
+  // Outside Temp Sensor
+  String outside_temp_topic = "homeassistant/sensor/" + currentBLEName + "_outside_temp/config";
+  String outside_temp_payload = String(R"({"name": "Outside Temp", "unique_id": ")") + 
+    currentBLEName + R"(_outside_temp", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.outsideTempF }}", "unit_of_measurement": "°F"})";
+  mqttClient.publish(outside_temp_topic.c_str(), 1, true, outside_temp_payload.c_str());
+
+  // Outside Humidity Sensor
+  String outside_humidity_topic = "homeassistant/sensor/" + currentBLEName + "_outside_humidity/config";
+  String outside_humidity_payload = String(R"({"name": "Outside Humidity", "unique_id": ")") + 
+    currentBLEName + R"(_outside_humidity", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.outsideHumidity }}", "unit_of_measurement": "%"})";
+  mqttClient.publish(outside_humidity_topic.c_str(), 1, true, outside_humidity_payload.c_str());
+
+  // Zipcode Sensor
+  String zipcode_topic = "homeassistant/sensor/" + currentBLEName + "_zipcode/config";
+  String zipcode_payload = String(R"({"name": "Zipcode", "unique_id": ")") + 
+    currentBLEName + R"(_zipcode", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.zipcode }}"})";
+  mqttClient.publish(zipcode_topic.c_str(), 1, true, zipcode_payload.c_str());
+
+  // Free Heap Sensor
+  String free_heap_topic = "homeassistant/sensor/" + currentBLEName + "_free_heap/config";
+  String free_heap_payload = String(R"({"name": "Free Heap", "unique_id": ")") + 
+    currentBLEName + R"(_free_heap", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.freeHeap }}", "unit_of_measurement": "Kbytes"})";
+  mqttClient.publish(free_heap_topic.c_str(), 1, true, free_heap_payload.c_str());
+
+  // Min Free Heap Sensor (assuming 'mifreeheap' was a typo for 'minFreeHeap')
+  String min_free_heap_topic = "homeassistant/sensor/" + currentBLEName + "_min_free_heap/config";
+  String min_free_heap_payload = String(R"({"name": "Min Free Heap", "unique_id": ")") + 
+    currentBLEName + R"(_min_free_heap", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.minFreeHeap }}", "unit_of_measurement": "Kbytes"})";
+  mqttClient.publish(min_free_heap_topic.c_str(), 1, true, min_free_heap_payload.c_str());
+
+  // Largest Free Block Sensor
+  String largest_free_block_topic = "homeassistant/sensor/" + currentBLEName + "_largest_free_block/config";
+  String largest_free_block_payload = String(R"({"name": "Largest Free Block", "unique_id": ")") + 
+    currentBLEName + R"(_largest_free_block", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.largestFreeBlock }}", "unit_of_measurement": "Kbytes"})";
+  mqttClient.publish(largest_free_block_topic.c_str(), 1, true, largest_free_block_payload.c_str());
+
+  // WDT Timeout Occurred Sensor
+  String wdt_timeout_occurred_topic = "homeassistant/sensor/" + currentBLEName + "_wdt_timeout_occurred/config";
+  String wdt_timeout_occurred_payload = String(R"({"name": "WDT Timeout Occurred", "unique_id": ")") + 
+    currentBLEName + R"(_wdt_timeout_occurred", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.wdtTimeoutOccurred }}"})";
+  mqttClient.publish(wdt_timeout_occurred_topic.c_str(), 1, true, wdt_timeout_occurred_payload.c_str());
+
+  // WDT Timeout Count Sensor
+  String wdt_timeout_count_topic = "homeassistant/sensor/" + currentBLEName + "_wdt_timeout_count/config";
+  String wdt_timeout_count_payload = String(R"({"name": "WDT Timeout Count", "unique_id": ")") + 
+    currentBLEName + R"(_wdt_timeout_count", "device": {"identifiers": [")" + currentBLEName + 
+    R"(_heater"], "name": ")" + currentBLEName + R"(", "manufacturer": "ARV w/ xAI", "model": "ESP32 Diesel Therm"}, "state_topic": ")" + 
+    mqtt_topic_heater_updates + R"(", "value_template": "{{ value_json.wdtTimeoutCount }}"})";
+  mqttClient.publish(wdt_timeout_count_topic.c_str(), 1, true, wdt_timeout_count_payload.c_str());
+
 }
 
 void onMqttDisconnect(bool sessionPresent) {
@@ -1388,6 +1649,8 @@ void setup() {
     }
   }
 
+  dumpPreferencesToSPIFFS("/preferences_backup.json");
+
   // Initialize timers
   wifiReconnectTimer = xTimerCreate("wifiReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, wifiReconnectCallback);
   // mqttReconnectTimer = xTimerCreate("mqttReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, mqttReconnectCallback);
@@ -1461,11 +1724,26 @@ void setup() {
   mqttClient.setKeepAlive(60);
   mqttClient.setAutoReconnect(true);
 
+  // mqttClient.onMessage(mqttCallback);
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
   // mqttClient.onTopic(mqtt_topic_set_temp.c_str(), 1, onMqttMessage); // Use onTopic instead of onMessage
 
   connectToMqtt();
+
+  // // Local broker setup
+  // broker.begin();
+  // broker.onPublish([](const MqttClient* source, const Topic& topic, const char* payload, size_t len) {
+  //   ::onPublish(source, topic, payload, len);
+  // });
+
+  // // Subscribe to ESPHome topics locally
+  // localClient.subscribe(Topic("esphome/rv-batt-sg5k/#"));
+
+  // Subscribe to ESPHome topics on HA broker
+  // if (mqttClient.connected()) {
+  //   mqttClient.subscribe("esphome/rv-batt-sg5k/#", 0);
+  // }
   
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, "/index_html", "text/html");
@@ -1598,11 +1876,11 @@ void setup() {
         float validatedSupply = (supplyVoltage <= 5.0 || supplyVoltage > 15.0 || isnan(supplyVoltage)) ? 12.0 : supplyVoltage;
         if (strcmp(arg, "ductSpeed") == 0) {
           float voltageRange = validatedSupply - MIN_FAN_VOLTAGE;
-          targetVoltage = (percent == 0) ? 0.0 : MIN_FAN_VOLTAGE + (percent / 100.0) * voltageRange;
+          targetVoltage = (percent == 0) ? 0.0 : MIN_FAN_VOLTAGE + (percent / 100.0f) * voltageRange;
           fanSpeed = (targetVoltage < MIN_FAN_VOLTAGE) ? 0 : calculateAdjustedPWM(targetVoltage, validatedSupply);
         } else if (strcmp(arg, "wallSpeed") == 0) {
-          float voltageRange = validatedSupply - 6; // 12.5 - 7 = 5.5V
-          targetVoltage = (percent == 0) ? 0.0 : 6 + (percent / 100.0) * voltageRange;
+          float voltageRange = validatedSupply - 6.0f; // 12.5 - 7 = 5.5V
+          targetVoltage = (percent == 0) ? 0.0 : 6.0f + (percent / 100.0f) * voltageRange;
           fanSpeed = calculateAdjustedPWM(targetVoltage, validatedSupply);
         }
         ledcWrite(pin, fanSpeed);
@@ -1841,6 +2119,52 @@ void setup() {
     }
   });
 
+  server.on("/managePreferences", HTTP_POST, [](AsyncWebServerRequest* request) {
+  if (!request->hasArg("action")) {
+    request->send(400, "text/plain", "Missing action parameter");
+    return;
+  }
+
+  String action = request->arg("action");
+  String filename = request->hasArg("filename") ? request->arg("filename") : "/preferences_backup.json";
+
+  if (action == "dump") {
+    if (dumpPreferencesToSPIFFS(filename)) {
+      request->send(200, "text/plain", "Preferences dumped to " + filename);
+    } else {
+      request->send(500, "text/plain", "Failed to dump preferences to " + filename);
+    }
+  } else if (action == "load") {
+    if (loadPreferencesFromSPIFFS(filename)) {
+      // Update MQTT topics after loading new BLE name
+      mqtt_client_id = currentBLEName + "-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+      mqtt_topic_heater_updates = currentBLEName + "/updates";
+      mqtt_topic_set_temp = currentBLEName + "/set_temp";
+      mqtt_topic_fan_speed = currentBLEName + "/set_fan_speed";
+      mqtt_topic_control_mode = currentBLEName + "/set_fan_control_mode";
+      mqtt_topic_shutdown = currentBLEName + "/shutdown";
+      mqtt_topic_turn_on = currentBLEName + "/turn_on";
+      mqttClient.disconnect();
+      mqttClient.setClientId(mqtt_client_id.c_str());
+      mqttClient.setWill(mqtt_topic_heater_updates.c_str(), 1, true, "offline");
+      mqttClient.connect();
+
+      // Restart mDNS with new name
+      MDNS.end();
+      if (MDNS.begin(currentBLEName.c_str())) {
+        MDNS.addService("http", "tcp", 80);
+        Serial.println("mDNS restarted with name: " + currentBLEName);
+      }
+
+      request->send(200, "text/plain", "Preferences loaded from " + filename);
+    } else {
+      request->send(500, "text/plain", "Failed to load preferences from " + filename);
+    }
+  } else {
+    request->send(400, "text/plain", "Invalid action. Use 'dump' or 'load'");
+  }
+});
+
   // Handler for all other files (excluding .js)
   server.onNotFound([](AsyncWebServerRequest *request) {
     if (request->method() == HTTP_GET) {
@@ -1963,6 +2287,15 @@ void loop() {
   ElegantOTA.loop();
   checkWiFiConnection();
   timeClient.update();
+
+  // Handle TinyMqtt broker
+  // Throttle MQTT processing
+  // static unsigned long lastBroker = 0;
+  // if (millis() - lastBroker >= 50) { // Run every 20ms
+  //   // broker.loop();
+  //   localClient.loop();
+  //   lastBroker = millis();
+  // }
  
   // Static variables and initial setup
   static bool firstRun = true;
@@ -1970,16 +2303,18 @@ void loop() {
   unsigned long currentMillis = millis();
   static bool serialActive = false;
 
-
-    // Detect overflow
+  // Detect overflow
   if (currentMillis < lastMillis) {
     overflowCount++; // Increment overflow counter on wraparound
   }
   lastMillis = currentMillis;
 
-  // Calculate uptime with overflow adjustment using unsigned long long
-  uptime = (unsigned long long)overflowCount * 4294967295UL + (unsigned long)(currentMillis - bootTime);
-
+  static uint32_t uptime = 0;
+  static unsigned long lastMillisUpdate = 0;
+  if (currentMillis - lastMillisUpdate >= 1000) {
+      uptime++;
+      lastMillisUpdate = currentMillis;
+  }
 
   // LED Heartbeat
   static unsigned long flasherLastTime = 0; // Adjusted initialization
@@ -1996,7 +2331,7 @@ void loop() {
   // Tank runtime calculation
   static unsigned long prevMillis = 0;
   unsigned long elapsedMillis = (unsigned long)(currentMillis - prevMillis);
-  float elapsedSeconds = elapsedMillis / 1000.0;
+  float elapsedSeconds = elapsedMillis / 1000.0f;
   prevMillis = currentMillis;
   totalTankTime += elapsedSeconds;
 
@@ -2014,7 +2349,7 @@ void loop() {
     supplyVoltage = ((int(Data[28]) << 8) | int(Data[29])) * 0.1;
     heaterinternalTemp = (int(Data[34]) << 8) | int(Data[35]);
     glowPlugCurrent = (int(Data[38]) << 8) | int(Data[39]);
-    glowPlugCurrent_Amps = glowPlugCurrent / 100.0;
+    glowPlugCurrent_Amps = glowPlugCurrent / 100.0f;
     pumpHz = int(Data[40] * 0.1);
     heaterErrorNum = int(Data[27]);
     memset(combinedFrame, 0, COMBINED_FRAME_SIZE);
@@ -2331,7 +2666,7 @@ void loop() {
       if (wallFanManualControl) {
           float newVoltage = manualWallFanVoltage;
           if (newVoltage >= 0) {
-              float percent = (newVoltage - 6) / (HIGH_FAN_VOLTAGE - 6) * 100.0;
+              float percent = (newVoltage - 6.0f) / (HIGH_FAN_VOLTAGE - 6.0f) * 100.0f;
               if (percent <= 0 || newVoltage == 0) {
                   manualWallFanSpeed = 0;
                   newVoltage = 0.0;
@@ -2435,12 +2770,12 @@ void loop() {
         float cycleFuelGallons = 0.0; // Default to zero when pump is off
     if (pumpHz > 0) {
       float pumpsPerCycle = pumpHz * 2;
-      float cycleFuel = (pumpsPerCycle / 1000.0) * PUMP_FLOW_PER_1000_PUMPS;
+      float cycleFuel = (pumpsPerCycle / 1000.0f) * PUMP_FLOW_PER_1000_PUMPS;
       cycleFuelGallons = cycleFuel * ML_TO_GALLON;
       fuelConsumption += cycleFuel;
       tankConsumption += cycleFuel;
       tankRuntime += 2;
-      currentGPH = cycleFuelGallons * 3600.0 / 2.0;
+      currentGPH = cycleFuelGallons * 3600.0f / 2.0f;
       // Accumulate pump Hz for averaging
       pumpHzAccumulator += pumpHz;
       pumpHzSampleCount++;
@@ -2453,13 +2788,13 @@ void loop() {
 
     // Calculate power consumption and watt-hours
     float validatedSupply = (supplyVoltage <= 9.0 || supplyVoltage > 15.0 || isnan(supplyVoltage)) ? 12.0 : supplyVoltage;
-    float totalPower = calculateTotalPower(validatedSupply);
-    float wattHours = totalPower * (2.0 / 3600.0); // 2-second contribution to watt-hours
+    totalPower = calculateTotalPower(validatedSupply);
+    float wattHours = totalPower * (2.0f / 3600.0f); // 2-second contribution to watt-hours
     updateWattHourHistory(wattHours, epochTime);
     avgWattHours24h = calculateRolling24HourAverageWattHours(epochTime); // Update rolling average
 
 
-    if (glowPlugCurrent_Amps > 0.5) glowPlugHours += 2.0 / 3600.0;
+    if (glowPlugCurrent_Amps > 0.5) glowPlugHours += 2.0f / 3600.0f;
     rollingAvgGPH = (alpha * currentGPH) + ((1 - alpha) * rollingAvgGPH);
     if (totalTankTime > 0) {
       float gallonsUsed = tankConsumption * ML_TO_GALLON;
@@ -2524,7 +2859,7 @@ void loop() {
       pumpHzAccumulator = 0.0;
       pumpHzSampleCount = 0;
       float validatedSupply = (supplyVoltage <= 9.0 || supplyVoltage > 15.0 || isnan(supplyVoltage)) ? 12.0 : supplyVoltage;
-      float totalPower = calculateTotalPower(validatedSupply);
+      totalPower = calculateTotalPower(validatedSupply);
       float totalAmps = (validatedSupply > 0) ? totalPower / validatedSupply : 0.0;
       ampsHistory[ampsIndex] = totalAmps;
       ampsTimestamps[ampsIndex] = offsetTime;
@@ -2586,32 +2921,34 @@ void loop() {
     jsonDoc["error"] = (heaterErrorNum < 0) ? "Est Coms" : heaterError[heaterErrorNum];
     jsonDoc["statenum"] = heaterStateNum;
     jsonDoc["errornum"] = heaterErrorNum;
-    jsonDoc["heaterHourMeter"] = heaterRunTime / 3600.0;
-    jsonDoc["uptime"] = uptime / 1000;
+    jsonDoc["heaterHourMeter"] = round(heaterRunTime / 3600.0f * 10) / 10;
+    jsonDoc["uptime"] = uptime;
     // jsonDoc["time"] = timeClient.getFormattedTime();
     jsonDoc["epochTime"] = epochTime;
     jsonDoc["baseEpoch"] = baseEpoch;
-    jsonDoc["fuelConsumedLifetime"] = fuelConsumption * ML_TO_GALLON;
-    jsonDoc["fuelConsumedTank"] = tankConsumption * ML_TO_GALLON;
-    jsonDoc["fuelUsedPercentage"] = (tankConsumption * ML_TO_GALLON) / tankSizeGallons;
+    jsonDoc["fuelConsumedLifetime"] = round(fuelConsumption * ML_TO_GALLON * 10.0f) / 10;
+    jsonDoc["fuelConsumedTank"] = round(tankConsumption * ML_TO_GALLON * 100.0f) / 100;
+    jsonDoc["fuelUsedPercentage"] = (round(tankConsumption * ML_TO_GALLON) / tankSizeGallons) * 100;
     jsonDoc["currentUsage"] = currentGPH;
     jsonDoc["averageGPH"] = avgGallonPerHour;
     jsonDoc["fanSpeed"] = fanSpeed;
     jsonDoc["supplyVoltage"] = supplyVoltage;
     jsonDoc["voltageWarning"] = voltageWarning;
-    jsonDoc["glowPlugHours"] = glowPlugHours;
+    jsonDoc["totalPower"] = round(totalPower * 10.0f) / 10;
+    jsonDoc["amps"] = (supplyVoltage > 0) ? round(totalPower / supplyVoltage * 10.0f) / 10 : 0;
+    jsonDoc["glowPlugHours"] = round(glowPlugHours * 10.0f) /10;
     jsonDoc["frostMode"] = frostModeEnabled;
     jsonDoc["tankSizeGallons"] = tankSizeGallons;
-    jsonDoc["tankRuntime"] = tankRuntime / 3600;
+    jsonDoc["tankRuntime"] = tankRuntime / 3600.0f;
     jsonDoc["remainingRuntimeHours"] = remainingRuntimeHours;
     jsonDoc["rollingAvgGPH"] = rollingAvgGPH;
-    jsonDoc["rollingRuntimeHours"] = (rollingRuntimeHours > 2190.0 || isnan(rollingRuntimeHours) || abs(rollingRuntimeHours) < 0.0001f) ? JsonVariant() : rollingRuntimeHours;
+    jsonDoc["rollingRuntimeHours"] = (rollingRuntimeHours > 2190.0f || isnan(rollingRuntimeHours) || abs(rollingRuntimeHours) < 0.0001f) ? JsonVariant() : rollingRuntimeHours;
     jsonDoc["heaterinternalTemp"] = round(celsiusToFahrenheit(heaterinternalTemp));
     jsonDoc["glowPlugCurrent_Amps"] = glowPlugCurrent_Amps;
     jsonDoc["pumpHz"] = pumpHz;
     jsonDoc["controlEnable"] = controlEnable;
     jsonDoc["walltemp"] = (walltemp < -100.0f) ? 0 : round(celsiusToFahrenheit(walltemp));
-    jsonDoc["walltemptrigger"] = (walltemptrigger * 9.0 / 5.0);
+    jsonDoc["walltemptrigger"] = round(walltemptrigger * 9.0f / 5.0f);
     jsonDoc["tempwarn"] = tempwarn;
     jsonDoc["ductfan"] = ductfan;
     jsonDoc["wallfan"] = wallfan;
@@ -2634,9 +2971,9 @@ void loop() {
     jsonDoc["zipcode"] = ZIP_CODE;
     jsonDoc["saveError"] = saveError; // Add error message to JSON
     jsonDoc["serialinterruptcount"] = serialinterruptcount;
-    jsonDoc["freeHeap"] = latestMemoryStats.freeHeap;
-    jsonDoc["minFreeHeap"] = latestMemoryStats.minFreeHeap;
-    jsonDoc["largestFreeBlock"] = latestMemoryStats.largestFreeBlock;
+    jsonDoc["freeHeap"] = latestMemoryStats.freeHeap / 1024;
+    jsonDoc["minFreeHeap"] = latestMemoryStats.minFreeHeap / 1024;
+    jsonDoc["largestFreeBlock"] = latestMemoryStats.largestFreeBlock / 1024;
     jsonDoc["lowMemoryWarning"] = latestMemoryStats.lowMemoryWarning;
     jsonDoc["fragmentationWarning"] = latestMemoryStats.fragmentationWarning;
     jsonDoc["wdtTimeoutOccurred"] = wdtTimeoutOccurred;
@@ -2665,7 +3002,7 @@ void loop() {
     size_t totalLen = headerLen + jsonLen + footerLen;
 
     // Report size every 5min
-    if ((unsigned long)(millis() - lastJsonCheckTime) >= 300000) {
+    if (DEBUG && (unsigned long)(millis() - lastJsonCheckTime) >= 300000) {
       lastJsonCheckTime = millis();
       Serial.printf("Serialized JSON length: %d bytes, Total SSE length: %d bytes\n", jsonLen, totalLen);
       Serial.printf("Free Heap: %d, Min Free Heap: %d\n", ESP.getFreeHeap(), ESP.getMinFreeHeap());
@@ -2687,19 +3024,6 @@ void loop() {
     } else if (DEBUG) {
       Serial.println("MQTT not connected, skipping publish");
     }
-
-
-    // Serial.println("12-hour Temp History:");
-    // for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
-    //   int realIndex = (tempIndex - TEMP_HISTORY_SIZE + i + TEMP_HISTORY_SIZE) % TEMP_HISTORY_SIZE;
-    //   Serial.printf("Idx %d: %.2f at %u\n", realIndex, tempHistory[realIndex], tempTimestamps[realIndex]);
-    // }
-    // Serial.println("24-hour Watt History:");
-    // for (int i = 0; i < WATT_HOUR_HISTORY_SIZE; i++) {
-    //   int realIndex = (wattHourIndex - WATT_HOUR_HISTORY_SIZE + i + WATT_HOUR_HISTORY_SIZE) % WATT_HOUR_HISTORY_SIZE;
-    //   Serial.printf("Idx %d: %.2f at %u\n", realIndex, wattHourHistory[realIndex], wattHourTimestamps[realIndex]);
-    // }
-
 
     if (eventen && ((unsigned long)(millis() - lastHistEventTime) >= 60000 || clientconnect)) {
       lastHistEventTime = millis();
@@ -2733,7 +3057,7 @@ void loop() {
           size_t maxJsonLen = sizeof(histJsonBuffer) - headerLen - footerLen; // Corrected buffer limit
 
           memset(histJsonBuffer, 0, sizeof(histJsonBuffer));
-          Serial.println("Sending " + String(hist.eventName) + ":");
+          if (DEBUG) Serial.println("Sending " + String(hist.eventName) + ":");
 
           if (hist.serializeFunc12h) {
             StaticJsonDocument<4096>& histDoc12h = hist.serializeFunc12h(epochTime); // Pass epochTime, use reference
@@ -2757,8 +3081,8 @@ void loop() {
           memcpy(histJsonBuffer + headerLen + histJsonLen, sseFooter, footerLen);
           size_t totalLen = headerLen + histJsonLen + footerLen;
 
-          Serial.printf("Serialized History JSON length: %d bytes, Total SSE length: %d bytes\n", histJsonLen, totalLen);
-          Serial.printf("Free Heap: %d, Min Free Heap: %d\n", ESP.getFreeHeap(), ESP.getMinFreeHeap());
+          if (DEBUG) Serial.printf("Serialized History JSON length: %d bytes, Total SSE length: %d bytes\n", histJsonLen, totalLen);
+          if (DEBUG) Serial.printf("Free Heap: %d, Min Free Heap: %d\n", ESP.getFreeHeap(), ESP.getMinFreeHeap());
 
           if (eventen) {
             events.send(histJsonBuffer, nullptr, totalLen); // Include totalLen for precise sending
@@ -2867,9 +3191,9 @@ void simulateButtonPress(int pin) {
 
 void getMemoryStats() {
   // Update global memory stats
-  latestMemoryStats.freeHeap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-  latestMemoryStats.minFreeHeap = heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
-  latestMemoryStats.largestFreeBlock = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+  latestMemoryStats.freeHeap = ESP.getFreeHeap();//heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+  latestMemoryStats.minFreeHeap = ESP.getMinFreeHeap();//heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT);
+  latestMemoryStats.largestFreeBlock = ESP.getMaxAllocHeap(); //heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
   latestMemoryStats.lowMemoryWarning = (latestMemoryStats.freeHeap < 50000);
   latestMemoryStats.fragmentationWarning = (latestMemoryStats.largestFreeBlock < (latestMemoryStats.freeHeap / 2));
 
@@ -2885,137 +3209,6 @@ void getMemoryStats() {
     Serial.println("Warning: Possible memory fragmentation detected!");
   }
 }
-
-// String serializeTempHistory() {
-//   StaticJsonDocument<4098> serializeJsonDoc;
-//   JsonArray tempArray = serializeJsonDoc.createNestedArray("tempHistory");
-//   JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
-
-//   unsigned long currentTime = timeClient.getEpochTime();
-//   for (int i = 0; i < TEMP_HISTORY_SIZE; i++) {
-//     int realIndex = (tempIndex + i) % TEMP_HISTORY_SIZE; // Correct circular index
-//     if (tempHistory[realIndex] > -100 && (currentTime - tempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
-//       tempArray.add(round(celsiusToFahrenheit(tempHistory[realIndex])));
-//       timeArray.add(tempTimestamps[realIndex]); // Use absolute epoch timestamp
-//     }
-//   }
-//   String output;
-//   serializeJson(serializeJsonDoc, output);
-//   return output;
-// }
-
-// String serializeVoltageHistory() {
-//   StaticJsonDocument<4098> serializeJsonDoc;
-//   JsonArray voltageArray = serializeJsonDoc.createNestedArray("voltageHistory");
-//   JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
-
-//   unsigned long currentTime = timeClient.getEpochTime();
-//   for (int i = 0; i < VOLTAGE_HISTORY_SIZE; i++) {
-//     int realIndex = (voltageIndex + i) % VOLTAGE_HISTORY_SIZE;
-//     if (voltageHistory[realIndex] >= 0 && (currentTime - voltageTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
-//       voltageArray.add(voltageHistory[realIndex]);
-//       timeArray.add(voltageTimestamps[realIndex]); // Use absolute epoch timestamp
-//     }
-//   }
-//   String output;
-//   serializeJson(serializeJsonDoc, output);
-//   return output;
-// }
-
-// String serializePumpHzHistory() {
-//   StaticJsonDocument<4098> serializeJsonDoc;
-//   JsonArray pumpHzArray = serializeJsonDoc.createNestedArray("pumpHzHistory");
-//   JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
-
-//   unsigned long currentTime = timeClient.getEpochTime();
-//   for (int i = 0; i < PUMP_HZ_HISTORY_SIZE; i++) {
-//     int realIndex = (pumpHzIndex + i) % PUMP_HZ_HISTORY_SIZE;
-//     if (pumpHzHistory[realIndex] >= 0 && (currentTime - pumpHzTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
-//       pumpHzArray.add(pumpHzHistory[realIndex]);
-//       timeArray.add(pumpHzTimestamps[realIndex]); // Use absolute epoch timestamp
-//     }
-//   }
-//   String output;
-//   serializeJson(serializeJsonDoc, output);
-//   return output;
-// }
-
-// // New serialization function for outdoor temperature
-// String serializeOutsideTempHistory() {
-//   StaticJsonDocument<4098> serializeJsonDoc;
-//   JsonArray outsideTempArray = serializeJsonDoc.createNestedArray("outsideTempHistory");
-//   JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
-
-//   unsigned long currentTime = timeClient.getEpochTime();
-//   for (int i = 0; i < OUTSIDE_TEMP_HISTORY_SIZE; i++) {
-//     int realIndex = (outsideTempIndex + i) % OUTSIDE_TEMP_HISTORY_SIZE;
-//     if (!isnan(outsideTempHistory[realIndex]) && (currentTime - outsideTempTimestamps[realIndex]) <= 43200) { // 12 hours in seconds
-//       outsideTempArray.add(outsideTempHistory[realIndex]); // Already in Fahrenheit
-//       timeArray.add(outsideTempTimestamps[realIndex]); // Use absolute epoch timestamp
-//     }
-//   }
-//   String output;
-//   serializeJson(serializeJsonDoc, output);
-//   return output;
-// }
-
-// String serializeHourlyFuelHistory() {
-//   StaticJsonDocument<4098> serializeJsonDoc;
-//   JsonArray fuelArray = serializeJsonDoc.createNestedArray("hourlyFuelHistory");
-//   JsonArray timeArray = serializeJsonDoc.createNestedArray("hourlyFuelTimestamps");
-
-//   unsigned long currentTime = timeClient.getEpochTime();
-//   for (int i = 0; i < HOURLY_FUEL_HISTORY_SIZE; i++) {
-//     int realIndex = (hourlyFuelIndex - HOURLY_FUEL_HISTORY_SIZE + i + HOURLY_FUEL_HISTORY_SIZE) % HOURLY_FUEL_HISTORY_SIZE;
-//     if (hourlyFuelTimestamps[realIndex] > 0 && (currentTime - hourlyFuelTimestamps[realIndex]) <= 86400) { // 24 hours
-//       fuelArray.add(hourlyFuelHistory[realIndex]);
-//       timeArray.add(hourlyFuelTimestamps[realIndex]); // Use absolute epoch timestamp
-//     }
-//   }
-//   serializeJsonDoc["hourlyFuelAccumulator"] = hourlyFuelAccumulator; // Current hour’s running total
-
-//   String output;
-//   serializeJson(serializeJsonDoc, output);
-//   return output;
-// }
-
-// String serializeWattHourHistory() {
-//   StaticJsonDocument<4098> serializeJsonDoc;
-//   JsonArray wattHourArray = serializeJsonDoc.createNestedArray("wattHourHistory");
-//   JsonArray timeArray = serializeJsonDoc.createNestedArray("wattHourTimestamps");
-
-//   unsigned long currentTime = timeClient.getEpochTime();
-//   for (int i = 0; i < WATT_HOUR_HISTORY_SIZE; i++) {
-//     int realIndex = (wattHourIndex - WATT_HOUR_HISTORY_SIZE + i + WATT_HOUR_HISTORY_SIZE) % WATT_HOUR_HISTORY_SIZE;
-//     if (wattHourTimestamps[realIndex] > 0 && (currentTime - wattHourTimestamps[realIndex]) <= 86400) { // 24 hours
-//       wattHourArray.add(wattHourHistory[realIndex]);
-//       timeArray.add(wattHourTimestamps[realIndex]); // Use absolute epoch timestamp
-//     }
-//   }
-//   serializeJsonDoc["wattHourAccumulator"] = wattHourAccumulator; // Current hour’s running total
-
-//   String output;
-//   serializeJson(serializeJsonDoc, output);
-//   return output;
-// }
-
-// String serializeAmpsHistory() {
-//   StaticJsonDocument<4098> serializeJsonDoc;
-//   JsonArray ampsArray = serializeJsonDoc.createNestedArray("ampsHistory");
-//   JsonArray timeArray = serializeJsonDoc.createNestedArray("timestamps");
-
-//   unsigned long currentTime = timeClient.getEpochTime();
-//   for (int i = 0; i < AMPS_HISTORY_SIZE; i++) {
-//     int realIndex = (ampsIndex + i) % AMPS_HISTORY_SIZE;
-//     if (!isnan(ampsHistory[realIndex]) && (currentTime - ampsTimestamps[realIndex]) <= 43200) { // 12 hours
-//       ampsArray.add(ampsHistory[realIndex]);
-//       timeArray.add(ampsTimestamps[realIndex]); // Use absolute epoch timestamp
-//     }
-//   }
-//   String output;
-//   serializeJson(serializeJsonDoc, output);
-//   return output;
-// }
 
 // Update saveHistoryToSPIFFS to include outdoor temperature
 void saveHistoryToSPIFFS(bool enableYield) {
@@ -3721,6 +3914,131 @@ bool loadHistoryFromSPIFFS() {
 
   avgWattHours24h = calculateRolling24HourAverageWattHours(currentTime);
   return success;
+}
+
+// Dump preferences to a JSON file on SPIFFS
+bool dumpPreferencesToSPIFFS(const String& filename) {
+  if (!SPIFFS.exists(filename)) {
+    File file = SPIFFS.open(filename, FILE_WRITE);
+    if (!file) {
+      Serial.println("Failed to create backup file: " + filename);
+      return false;
+    }
+    file.close();
+  }
+
+  DynamicJsonDocument doc(2048); // Adjust size based on your preferences
+  doc["bleName"] = preferences.getString("bleName", "HEATER-THERM");
+  doc["zipcode"] = preferences.getString("zipcode", "64856");
+  doc["currentFileIndex"] = preferences.getInt("currentFileIndex", 0);
+  doc["runtime"] = preferences.getULong("runtime", 0);
+  doc["fuelConsumption"] = preferences.getFloat("fuelConsumption", 0.0);
+  doc["tankRuntime"] = preferences.getFloat("tankRuntime", 0.0);
+  doc["tankSize"] = preferences.getFloat("tankSize", 0.0);
+  doc["tankConsumption"] = preferences.getFloat("tankConsumption", 0.0);
+  doc["avgGallonPerHour"] = preferences.getFloat("avgGallonPerHour", 0.0);
+  doc["totalRuntime"] = preferences.getULong("totalRuntime", 0);
+  doc["glowPlugHours"] = preferences.getFloat("glowPlugHours", 0.0);
+  doc["frostMode"] = preferences.getBool("frostMode", false);
+  doc["walltemptrigger"] = preferences.getFloat("walltemptrigger", 0.0);
+  doc["totalTankTime"] = preferences.getFloat("totalTankTime", 0.0);
+  doc["rollingAvgGPH"] = preferences.getFloat("rollingAvgGPH", 0.0);
+  doc["ductFanManual"] = preferences.getBool("ductFanManual", false);
+  doc["wallFanManual"] = preferences.getBool("wallFanManual", false);
+  doc["manualDuctSpeed"] = preferences.getInt("manualDuctSpeed", 0);
+  doc["manualWallSpeed"] = preferences.getInt("manualWallSpeed", 0);
+  doc["manualDuctVoltage"] = preferences.getFloat("manualDuctVoltage", 0.0);
+  doc["manualWallVoltage"] = preferences.getFloat("manualWallVoltage", 0.0);
+
+  File file = SPIFFS.open(filename, FILE_WRITE);
+  if (!file) {
+    Serial.println("Failed to open " + filename + " for writing");
+    return false;
+  }
+
+  size_t bytesWritten = serializeJson(doc, file);
+  file.close();
+
+  if (bytesWritten == 0) {
+    Serial.println("Failed to write preferences to " + filename);
+    SPIFFS.remove(filename);
+    return false;
+  }
+
+  Serial.println("Preferences dumped to " + filename + " (" + String(bytesWritten) + " bytes)");
+  return true;
+}
+
+// Load preferences from a JSON file on SPIFFS
+bool loadPreferencesFromSPIFFS(const String& filename) {
+  if (!SPIFFS.exists(filename)) {
+    Serial.println("Backup file does not exist: " + filename);
+    return false;
+  }
+
+  File file = SPIFFS.open(filename, FILE_READ);
+  if (!file) {
+    Serial.println("Failed to open " + filename + " for reading");
+    return false;
+  }
+
+  DynamicJsonDocument doc(2048); // Adjust size based on your preferences
+  DeserializationError error = deserializeJson(doc, file);
+  file.close();
+
+  if (error) {
+    Serial.println("Failed to parse " + filename + ": " + String(error.c_str()));
+    return false;
+  }
+
+  // Load and apply preferences
+  if (doc.containsKey("bleName")) preferences.putString("bleName", doc["bleName"].as<String>());
+  if (doc.containsKey("zipcode")) preferences.putString("zipcode", doc["zipcode"].as<String>());
+  if (doc.containsKey("currentFileIndex")) preferences.putInt("currentFileIndex", doc["currentFileIndex"].as<int>());
+  if (doc.containsKey("runtime")) preferences.putULong("runtime", doc["runtime"].as<unsigned long>());
+  if (doc.containsKey("fuelConsumption")) preferences.putFloat("fuelConsumption", doc["fuelConsumption"].as<float>());
+  if (doc.containsKey("tankRuntime")) preferences.putFloat("tankRuntime", doc["tankRuntime"].as<float>());
+  if (doc.containsKey("tankSize")) preferences.putFloat("tankSize", doc["tankSize"].as<float>());
+  if (doc.containsKey("tankConsumption")) preferences.putFloat("tankConsumption", doc["tankConsumption"].as<float>());
+  if (doc.containsKey("avgGallonPerHour")) preferences.putFloat("avgGallonPerHour", doc["avgGallonPerHour"].as<float>());
+  if (doc.containsKey("totalRuntime")) preferences.putULong("totalRuntime", doc["totalRuntime"].as<unsigned long>());
+  if (doc.containsKey("glowPlugHours")) preferences.putFloat("glowPlugHours", doc["glowPlugHours"].as<float>());
+  if (doc.containsKey("frostMode")) preferences.putBool("frostMode", doc["frostMode"].as<bool>());
+  if (doc.containsKey("walltemptrigger")) preferences.putFloat("walltemptrigger", doc["walltemptrigger"].as<float>());
+  if (doc.containsKey("totalTankTime")) preferences.putFloat("totalTankTime", doc["totalTankTime"].as<float>());
+  if (doc.containsKey("rollingAvgGPH")) preferences.putFloat("rollingAvgGPH", doc["rollingAvgGPH"].as<float>());
+  if (doc.containsKey("ductFanManual")) preferences.putBool("ductFanManual", doc["ductFanManual"].as<bool>());
+  if (doc.containsKey("wallFanManual")) preferences.putBool("wallFanManual", doc["wallFanManual"].as<bool>());
+  if (doc.containsKey("manualDuctSpeed")) preferences.putInt("manualDuctSpeed", doc["manualDuctSpeed"].as<int>());
+  if (doc.containsKey("manualWallSpeed")) preferences.putInt("manualWallSpeed", doc["manualWallSpeed"].as<int>());
+  if (doc.containsKey("manualDuctVoltage")) preferences.putFloat("manualDuctVoltage", doc["manualDuctVoltage"].as<float>());
+  if (doc.containsKey("manualWallVoltage")) preferences.putFloat("manualWallVoltage", doc["manualWallVoltage"].as<float>());
+
+  // Reload variables from preferences
+  currentBLEName = preferences.getString("bleName", "HEATER-THERM");
+  ZIP_CODE = preferences.getString("zipcode", "64856");
+  currentFileIndex = preferences.getInt("currentFileIndex", 0);
+  heaterRunTime = preferences.getULong("runtime", 0);
+  fuelConsumption = preferences.getFloat("fuelConsumption", 0);
+  tankRuntime = preferences.getFloat("tankRuntime", 0);
+  tankSizeGallons = preferences.getFloat("tankSize", 0);
+  tankConsumption = preferences.getFloat("tankConsumption", 0);
+  avgGallonPerHour = preferences.getFloat("avgGallonPerHour", 0.0);
+  totalRuntime = preferences.getULong("totalRuntime", 0);
+  glowPlugHours = preferences.getFloat("glowPlugHours", 0.0);
+  frostModeEnabled = preferences.getBool("frostMode", false);
+  walltemptrigger = preferences.getFloat("walltemptrigger", 0);
+  totalTankTime = preferences.getFloat("totalTankTime", 0.0);
+  rollingAvgGPH = preferences.getFloat("rollingAvgGPH", 0.0);
+  ductFanManualControl = preferences.getBool("ductFanManual", false);
+  wallFanManualControl = preferences.getBool("wallFanManual", false);
+  manualDuctFanSpeed = preferences.getInt("manualDuctSpeed", 0);
+  manualWallFanSpeed = preferences.getInt("manualWallSpeed", 0);
+  manualDuctFanVoltage = preferences.getFloat("manualDuctVoltage", 0.0);
+  manualWallFanVoltage = preferences.getFloat("manualWallVoltage", 0.0);
+
+  Serial.println("Preferences loaded from " + filename);
+  return true;
 }
 
 void end() {

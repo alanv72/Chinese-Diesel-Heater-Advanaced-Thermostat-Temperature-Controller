@@ -379,6 +379,102 @@ function setBLEName() {
   });
 }
 
+function savePreferences() {
+  const filename = document.getElementById('backupFilename').value.trim();
+  if (!filename) {
+    showPrefsMessage('Please enter a filename.', 'red');
+    return;
+  }
+
+  fetch('/managePreferences', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      action: 'dump',
+      filename: "/" + filename
+    })
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('Failed to save preferences: ' + response.statusText);
+    }
+    return response.text();
+  })
+  .then(text => {
+    showPrefsMessage(text, '#f39c12');
+    setTimeout(() => clearPrefsMessage(), 5000); // Clear message after 5 seconds
+  })
+  .catch(error => {
+    showPrefsMessage(error.message, 'red');
+  });
+}
+
+function loadPreferences() {
+  const filename = document.getElementById('backupFilename').value.trim();
+  if (!filename) {
+    showPrefsMessage('Please enter a filename.', 'red');
+    return;
+  }
+
+  fetch('/managePreferences', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      action: 'load',
+      filename: "/" + filename
+    })
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('Failed to load preferences: ' + response.statusText);
+    }
+    return response.text();
+  })
+  .then(text => {
+    showPrefsMessage(text, '#f39c12');
+    // Optionally refresh UI elements that depend on preferences
+    updateUIAfterLoad();
+    setTimeout(() => clearPrefsMessage(), 5000); // Clear message after 5 seconds
+  })
+  .catch(error => {
+    showPrefsMessage(error.message, 'red');
+  });
+}
+
+function showPrefsMessage(message, color) {
+  const messageElement = document.getElementById('prefsMessage');
+  messageElement.textContent = message;
+  messageElement.style.color = color;
+}
+
+function clearPrefsMessage() {
+  const messageElement = document.getElementById('prefsMessage');
+  messageElement.textContent = '';
+}
+
+function updateUIAfterLoad() {
+  // Update UI elements that depend on loaded preferences
+  fetch('/getStatus') // Assuming you have an endpoint to get current status
+    .then(response => response.json())
+    .then(data => {
+      // Update BLE name
+      document.getElementById('currentBLEName').textContent = data.bleName || 'HEATER-THERM';
+      // Update ZIP code
+      document.getElementById('currentZipCode').textContent = data.zipcode || '64856';
+      // Update thermostat and fan settings if applicable
+      document.getElementById('thermostatEnable').checked = data.thermostatMode || false;
+      document.getElementById('thermostatLabel').textContent = data.thermostatMode ? 'Thermostat On' : 'Thermostat Off';
+      document.getElementById('frostModeEnable').checked = data.frostMode || false;
+      document.getElementById('frostModeLabel').textContent = data.frostMode ? 'Frost Mode On' : 'Frost Mode';
+      // Add more updates as needed based on your preferences
+    })
+    .catch(error => console.error('Error updating UI:', error));
+}
+
 function shutdownHeater() {
   var xhr = new XMLHttpRequest();
   xhr.open("POST", "/shutdownHeater");
@@ -908,13 +1004,14 @@ document.addEventListener('DOMContentLoaded', function() {
     xhr.send();
   }
 
-  function updateFileList(files) {
+function updateFileList(files) {
     var tableBody = document.getElementById('fileListBody');
     if (tableBody) {
       tableBody.innerHTML = '';
       files.forEach(function(file) {
         var row = tableBody.insertRow();
-        row.insertCell(0).textContent = file.name;
+        // Create a clickable link using file.name
+        row.insertCell(0).innerHTML = `<a href="/${encodeURIComponent(file.name)}" class="file-link" target="_blank">${file.name}</a>`;
         row.insertCell(1).textContent = file.size;
         row.insertCell(2).innerHTML = `<div id="delete"><button class="delete-btn" onclick="deleteFile('${file.name}')">Delete</button></div>`;
       });

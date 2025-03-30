@@ -545,6 +545,43 @@
     text-decoration: underline;
     background-color: rgba(255, 255, 255, 0.1); /* Slight white tint on hover */
   }
+  .file-link {
+      color: inherit;         /* Matches the surrounding text color */
+      text-decoration: none;  /* Removes the default underline */
+  }
+
+  .file-link:hover {
+      text-decoration: underline;  /* Adds underline only on hover */
+  }
+  .file-area input[type="text"] {
+  background: darkred;
+  color: #f39c12;
+  padding: 5px;
+  border: none;
+  border-radius: 4px;
+  margin: 5px 0;
+  width: 80%;
+  max-width: 300px;
+}
+
+.file-area button {
+  background-color: #d35400;
+  border: none;
+  color: white;
+  padding: 10px 20px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+  margin: 4px 10px;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: background-color 0.3s;
+}
+
+.file-area button:hover {
+  background-color: #e67e22;
+}
 </style>
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -705,6 +742,14 @@
     <span id="currentBLEName"></span>&nbsp;<input type="text" id="bleNameInput" maxlength="32" placeholder="Enter new name">
     <button id="setBLENameButton" onclick="setBLEName()">Set Name</button>
   </div>
+  <div style="text-align: center;">
+    <input type="text" id="backupFilename" maxlength="32" placeholder="Enter filename (e.g., backup.json)" value="pref.json">
+    <button id="savePrefsButton" onclick="savePreferences()">Save Preferences</button>
+    <button id="loadPrefsButton" onclick="loadPreferences()">Load Preferences</button>
+  </div>
+  <p id="prefsMessage" style="color: #f39c12; margin-top: 10px;"></p>
+  <br>
+  <br>
 
 <script src="/chart.js"></script>
 <script src="/chartjs-adapter-date-fns.js"></script>
