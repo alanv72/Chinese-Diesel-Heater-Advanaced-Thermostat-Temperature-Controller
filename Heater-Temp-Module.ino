@@ -1136,8 +1136,8 @@ void onMqttConnect(bool sessionPresent) {
     float targetTempF = messageTemp.toFloat();
     int targetTempC = round(fahrenheitToCelsius(targetTempF));
     targetSetTemperature = targetTempC;
-    controlEnable = 1;
     frostModeEnabled = false;
+    controlEnable = 1;
     temperatureChangeByWeb = true;
   });
 
@@ -1688,8 +1688,6 @@ void setup() {
     }
   }
 
-  dumpPreferencesToSPIFFS("/pref.json");
-
   // Initialize timers
   wifiReconnectTimer = xTimerCreate("wifiReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, wifiReconnectCallback);
   // mqttReconnectTimer = xTimerCreate("mqttReconnect", pdMS_TO_TICKS(5000), pdFALSE, (void*)0, mqttReconnectCallback);
@@ -1748,6 +1746,9 @@ void setup() {
   } else {
     Serial.println("History loaded successfully");
   }
+
+  dumpPreferencesToSPIFFS("/pref.json");
+
   getMemoryStats();
   esp_task_wdt_reset();
 
